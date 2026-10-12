@@ -80,14 +80,15 @@ cargo run --release -p norito-desktop -- --folder examples/notes --file examples
 
 | クレート | 責務 |
 | --- | --- |
-| `norito-model` | Markdown原文、保存済み状態、編集履歴、原文と表示の対応 |
-| `norito-viewmodel` | コマンド、文書・ツリーの状態、未保存確認、I/O要求 |
-| `norito-platform` | FileStore / DirectoryStore / FileDialog traitと共有型 |
+| `norito-model` | Markdown原文、保存済み状態、編集履歴、原文と表示の対応、行・インラインの編集規則 |
+| `norito-viewmodel` | コマンドとI/O要求。文書セッション・ツリー・名前入力・状態表示を個別の型に分け、未保存確認を順序づける |
+| `norito-platform` | FileStore / DirectoryStore / FileDialog / Paths / DocumentResources / ResourcePicker / ExternalOpener traitと共有型 |
 | `norito-platform-native` | ネイティブI/Oとダイアログの具象Adapter |
 | `norito-platform-mock` | テスト用メモリ保存Adapter |
 | `norito-iced-ext` | 汎用リッチテキスト用HighlighterとGUI補助。Markdownには依存しない |
-| `norito-editor-widget` | 単一の編集バッファ、書式・カーソル変換、Modelとの同期 |
-| `norito-desktop` | 起動・DI・非同期実行・画面・テーマ |
+| `norito-editor-widget` | 単一の編集バッファ、入力・自動補完・書式・表の操作、Modelとの同期 |
+| `norito-render` | Mermaid・数式のSVG生成。GUIに依存しない |
+| `norito-desktop` | 起動・DI（`services`）・非同期実行（`host`）・画面・テーマ |
 
 添付のデザイン資料から色を採用し、`apps/desktop/src/theme.rs` にOKLCHトークンを定義しています。資料内のスクリプトは実行せず、Webサイト固有の表示規則はエディタの機能要件として扱っていません。補助文字は読みやすさのため明度を調整しています。
 

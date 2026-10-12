@@ -2553,14 +2553,13 @@ name = "norito-desktop"
 version = "0.1.0"
 dependencies = [
  "iced",
- "latex-rust",
- "mermaid-rs-renderer",
  "muda",
  "norito-editor-widget",
  "norito-iced-ext",
  "norito-model",
  "norito-platform",
  "norito-platform-native",
+ "norito-render",
  "norito-viewmodel",
  "png 0.18.1",
  "regex",
@@ -2612,6 +2611,15 @@ dependencies = [
  "norito-platform",
  "rfd",
  "tempfile",
+]
+
+[[package]]
+name = "norito-render"
+version = "0.1.0"
+dependencies = [
+ "latex-rust",
+ "mermaid-rs-renderer",
+ "norito-model",
 ]
 
 [[package]]
