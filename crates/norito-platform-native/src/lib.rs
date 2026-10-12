@@ -32,6 +32,15 @@ fn conflict() -> PlatformError {
 fn version(bytes: &[u8]) -> FileVersion {
     FileVersion(blake3::hash(bytes).to_hex().to_string())
 }
+/// Display text without the verbatim prefix added by Windows canonicalization.
+fn location(path: &Path) -> String {
+    let path = path.to_string_lossy();
+    if let Some(rest) = path.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{rest}")
+    } else {
+        path.strip_prefix(r"\\?\").unwrap_or(&path).to_owned()
+    }
+}
 fn name(path: &Path) -> String {
     path.file_name()
         .unwrap_or(path.as_os_str())
@@ -86,6 +95,7 @@ impl NativePlatform {
         let path = fs::canonicalize(path).map_err(error)?;
         Ok(DirectoryRef {
             name: name(&path),
+            location: location(&path),
             handle: DirectoryHandle(self.register(path)),
         })
     }
@@ -178,6 +188,7 @@ impl DirectoryStore for NativePlatform {
         })?;
         Ok(DirectoryRef {
             name,
+            location: location(&path),
             handle: DirectoryHandle(self.register(path)),
         })
     }

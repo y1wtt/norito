@@ -1,6 +1,7 @@
 //! Consistent outline icons for compact action controls.
 pub const FILE_ADD: &str = "M11 18H4V2h8l4 4v4 M12 2v5h4 M15 12v7 M11.5 15.5h7";
 pub const FOLDER_ADD: &str = "M10 17H2V4h6l2 3h8v3 M15 12v7 M11.5 15.5h7";
+pub const FOLDER: &str = "M2 16V4h6l2 3h8v9z";
 pub const LINK: &str = "M8 12l4-4 M7 7l2-2a4 4 0 0 1 6 6l-2 2 M13 13l-2 2a4 4 0 0 1-6-6l2-2";
 pub const BOLD: &str = "M6 3h5a3.5 3.5 0 0 1 0 7H6z M6 10h6a3.5 3.5 0 0 1 0 7H6z";
 pub const ITALIC: &str = "M9 3h7 M4 17h7 M12.5 3l-5 14";

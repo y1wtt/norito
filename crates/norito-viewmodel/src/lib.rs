@@ -109,6 +109,10 @@ impl EditorViewModel {
     pub fn can_edit(&self) -> bool {
         self.creation.is_none() && self.pending.is_none() && (!self.busy() || self.saving)
     }
+    /// Directory that receives new files and folders.
+    pub fn creation_directory(&self) -> Option<&DirectoryRef> {
+        self.selected_directory.as_ref().or(self.root.as_ref())
+    }
     pub fn name(&self) -> &str {
         self.file
             .as_ref()
@@ -133,11 +137,7 @@ impl EditorViewModel {
     fn navigate(&mut self, action: Action) -> Vec<Effect> {
         match action {
             Action::New => {
-                if let Some(dir) = self
-                    .selected_directory
-                    .clone()
-                    .or_else(|| self.root.clone())
-                {
+                if let Some(dir) = self.creation_directory().cloned() {
                     self.expanded.insert(dir.handle);
                     self.creating_directory = false;
                     self.creation = Some((dir, String::new()));
@@ -230,11 +230,7 @@ impl EditorViewModel {
             Command::ConfirmSave if self.pending.is_some() => return self.save(false),
             _ if self.pending.is_some() => return vec![],
             Command::NewDirectory => {
-                if let Some(dir) = self
-                    .selected_directory
-                    .clone()
-                    .or_else(|| self.root.clone())
-                {
+                if let Some(dir) = self.creation_directory().cloned() {
                     self.expanded.insert(dir.handle);
                     self.creating_directory = true;
                     self.creation = Some((dir, String::new()));
@@ -261,6 +257,10 @@ impl EditorViewModel {
             }
             Command::ToggleDirectory(dir) => {
                 self.selected_directory = Some(dir.clone());
+                // The root is always listed; selecting it only sets the creation target.
+                if self.root.as_ref().is_some_and(|r| r.handle == dir.handle) {
+                    return vec![];
+                }
                 if !self.expanded.remove(&dir.handle) {
                     self.expanded.insert(dir.handle);
                     if !self.children.contains_key(&dir.handle) {
@@ -316,6 +316,7 @@ impl EditorViewModel {
                             .then(|| DirectoryRef {
                                 handle: *handle,
                                 name: String::new(),
+                                location: String::new(),
                             })
                     });
                     self.document = document;
@@ -384,14 +385,43 @@ impl EditorViewModel {
 mod tests {
     use super::*;
     #[test]
-    fn directory_creation_preserves_dirty_document_and_selects_new_parent() {
+    fn selecting_root_sets_creation_target_without_collapsing() {
         let root = DirectoryRef {
             handle: DirectoryHandle(2),
             name: "root".into(),
+            location: String::new(),
         };
         let child = DirectoryRef {
             handle: DirectoryHandle(3),
             name: "資料".into(),
+            location: String::new(),
+        };
+        let mut vm = EditorViewModel {
+            root: Some(root.clone()),
+            expanded: [root.handle].into(),
+            ..Default::default()
+        };
+        vm.children.insert(child.handle, vec![]);
+        vm.dispatch(Command::ToggleDirectory(child.clone()));
+        assert_eq!(vm.creation_directory().unwrap().handle, child.handle);
+        assert!(
+            vm.dispatch(Command::ToggleDirectory(root.clone()))
+                .is_empty()
+        );
+        assert_eq!(vm.creation_directory().unwrap().handle, root.handle);
+        assert!(vm.expanded.contains(&root.handle));
+    }
+    #[test]
+    fn directory_creation_preserves_dirty_document_and_selects_new_parent() {
+        let root = DirectoryRef {
+            handle: DirectoryHandle(2),
+            name: "root".into(),
+            location: String::new(),
+        };
+        let child = DirectoryRef {
+            handle: DirectoryHandle(3),
+            name: "資料".into(),
+            location: String::new(),
         };
         let mut vm = EditorViewModel {
             root: Some(root.clone()),
@@ -424,6 +454,7 @@ mod tests {
             root: Some(DirectoryRef {
                 handle: DirectoryHandle(2),
                 name: "notes".into(),
+                location: String::new(),
             }),
             ..Default::default()
         };
@@ -464,6 +495,7 @@ mod tests {
             root: Some(DirectoryRef {
                 handle: DirectoryHandle(2),
                 name: "notes".into(),
+                location: String::new(),
             }),
             ..Default::default()
         };

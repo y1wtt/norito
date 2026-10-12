@@ -10,7 +10,42 @@ use norito_editor_widget::Mode;
 use norito_platform::{DirectoryHandle, Entry};
 use norito_viewmodel::{Action, Command};
 
+fn outline_icon<'a>(
+    path: &str,
+    size: f32,
+    color: iced::Color,
+) -> iced::widget::Svg<'a, iced::Theme> {
+    let svg = format!(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="{path}" fill="none" stroke="black" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>"#
+    );
+    iced::widget::svg(iced::widget::svg::Handle::from_memory(svg.into_bytes()))
+        .width(size)
+        .height(size)
+        .style(move |_, _| iced::widget::svg::Style { color: Some(color) })
+}
+
+/// Shortens `name` to about `em` font-size units; full-width characters count as 1.
+fn ellipsize(name: &str, em: f32) -> String {
+    let width = |c: char| if c.is_ascii() { 0.58 } else { 1.0 };
+    if name.chars().map(width).sum::<f32>() <= em {
+        return name.into();
+    }
+    let mut used = width('…');
+    let mut short = String::new();
+    for c in name.chars() {
+        used += width(c);
+        if used > em {
+            break;
+        }
+        short.push(c);
+    }
+    short + "…"
+}
+
 impl App {
+    fn creation_target(&self) -> Option<DirectoryHandle> {
+        self.vm.creation_directory().map(|dir| dir.handle)
+    }
     pub(super) fn tree_angle(&self, id: norito_platform::DirectoryHandle) -> f32 {
         if let Some((from, to, start)) = self.tree_motion.get(&id) {
             let t = (self
@@ -35,21 +70,17 @@ impl App {
         selected: bool,
     ) -> Element<'a, Message> {
         let c = theme::colors(self.light);
-        let svg = format!(
-            r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="{path}" fill="none" stroke="black" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>"#
+        let icon = outline_icon(
+            path,
+            18.0,
+            if !enabled {
+                c.muted.scale_alpha(0.45)
+            } else if selected {
+                c.accent
+            } else {
+                c.text
+            },
         );
-        let icon = iced::widget::svg(iced::widget::svg::Handle::from_memory(svg.into_bytes()))
-            .width(18)
-            .height(18)
-            .style(move |_, _| iced::widget::svg::Style {
-                color: Some(if !enabled {
-                    c.muted.scale_alpha(0.45)
-                } else if selected {
-                    c.accent
-                } else {
-                    c.text
-                }),
-            });
         tooltip(
             button(icon)
                 .padding(6)
@@ -222,7 +253,9 @@ impl App {
                         false,
                     ),
                 };
-                let mut label = row![text(label).size(12)]
+                let target = matches!(entry, Entry::Directory(dir)
+                    if self.creation_target() == Some(dir.handle));
+                let mut label = row![text(label).size(12).color_maybe(target.then_some(c.accent))]
                     .spacing(4)
                     .align_y(iced::Alignment::Center);
                 if let Entry::Directory(dir) = entry {
@@ -236,7 +269,7 @@ impl App {
                     .width(14)
                     .height(14)
                     .style(move |_, _| iced::widget::svg::Style {
-                        color: Some(c.muted),
+                        color: Some(if target { c.accent } else { c.muted }),
                     });
                     label = row![icon, label]
                         .spacing(4)
@@ -589,14 +622,47 @@ impl App {
         if self.sidebar {
             let mut sidebar = column![].spacing(8);
             if let Some(root) = &self.vm.root {
+                // Accent marks the directory that receives new files.
+                let color = if self.creation_target() == Some(root.handle) {
+                    c.accent
+                } else {
+                    c.text
+                };
+                let header = tooltip(
+                    button(
+                        row![
+                            outline_icon(super::icons::FOLDER, 16.0, color),
+                            text(ellipsize(&root.name, 8.0))
+                                .size(13)
+                                .color(color)
+                                .wrapping(iced::widget::text::Wrapping::None)
+                        ]
+                        .spacing(6)
+                        .align_y(iced::Alignment::Center),
+                    )
+                    .padding([5, 6])
+                    .width(Length::Fill)
+                    .clip(true)
+                    .on_press(Message::Command(Command::ToggleDirectory(root.clone())))
+                    .style(move |_, status| theme::control(c, false, status)),
+                    container(
+                        text(if root.location.is_empty() {
+                            &root.name
+                        } else {
+                            &root.location
+                        })
+                        .size(11)
+                        .wrapping(iced::widget::text::Wrapping::WordOrGlyph),
+                    )
+                    .max_width(360)
+                    .padding([5, 8])
+                    .style(move |_| norito_iced_ext::panel(c.surface, c.line)),
+                    tooltip::Position::Bottom,
+                );
                 sidebar = sidebar
                     .push(
                         row![
-                            button(text(&root.name).size(12).color(c.muted))
-                                .padding([4, 8])
-                                .on_press(Message::Command(Command::ToggleDirectory(root.clone())))
-                                .style(move |_, status| theme::control(c, false, status)),
-                            space::horizontal(),
+                            header,
                             self.icon_control(
                                 super::icons::FILE_ADD,
                                 "新規ファイル  Ctrl+N",

@@ -1,4 +1,4 @@
-//! Ports: contracts only. No GUI types or OS paths cross this boundary.
+//! Ports: contracts only. No GUI types or OS paths cross this boundary; paths appear only as display text.
 use std::fmt;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -16,6 +16,8 @@ pub struct FileRef {
 pub struct DirectoryRef {
     pub handle: DirectoryHandle,
     pub name: String,
+    /// Human-readable location for display only. Never parsed or used for I/O.
+    pub location: String,
 }
 #[derive(Debug, Clone)]
 pub enum Entry {
