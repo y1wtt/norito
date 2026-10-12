@@ -1,0 +1,10 @@
+[package]
+name = "norito-render"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+norito-model.workspace = true
+mermaid-rs-renderer = { version = "=0.3.1", default-features = false }
+latex-rust = { version = "=2.1.1", default-features = false }

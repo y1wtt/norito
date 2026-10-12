@@ -12,11 +12,10 @@ norito-platform-native.workspace = true
 norito-viewmodel.workspace = true
 norito-iced-ext.workspace = true
 norito-editor-widget.workspace = true
+norito-render.workspace = true
 tokio = { version = "1", features = ["rt"] }
 png = "0.18"
-mermaid-rs-renderer = { version = "=0.3.1", default-features = false }
 regex = "=1.13.1"
-latex-rust = { version = "=2.1.1", default-features = false }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 muda = "=0.19.3"

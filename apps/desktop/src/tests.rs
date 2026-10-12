@@ -1,12 +1,17 @@
 use super::*;
+use crate::{features::Placement, menu::MenuAction};
 use iced::widget::text_editor::{Action as EditAction, Edit};
+use norito_editor_widget::{EditorEvent, Mode};
+use norito_platform::*;
+use norito_viewmodel::{Action, Command};
+use std::sync::Arc;
 
 #[test]
 fn drop_result_survives_typing_and_waits_for_ime() {
     let (mut app, _) = App::boot();
     insert(&mut app, "before ");
-    let epoch = app.vm.document_epoch;
-    let revision = app.vm.document.revision;
+    let epoch = app.vm.session.epoch;
+    let revision = app.vm.session.document.revision;
     let selection = app.editor.source_selection();
     insert(&mut app, "typed");
     app.composing = true;
@@ -15,19 +20,22 @@ fn drop_result_survives_typing_and_waits_for_ime() {
             label: "attachment".into(),
             destination: "assets/test.pdf".into(),
         }),
-        false,
-        epoch,
-        revision,
-        selection,
+        Placement {
+            image: false,
+            epoch,
+            revision,
+            selection,
+        },
     ));
-    assert_eq!(app.vm.document.source, "before typed");
-    assert!(app.pending_drop_result.is_some());
+    assert_eq!(app.vm.session.document.source, "before typed");
+    assert!(app.drops.deferred.is_some());
     app.composing = false;
-    let result = app.pending_drop_result.take().unwrap();
+    let result = app.drops.deferred.take().unwrap();
     let _ = app.update(*result);
-    assert!(app.vm.document.source.contains("before typed"));
+    assert!(app.vm.session.document.source.contains("before typed"));
     assert!(
         app.vm
+            .session
             .document
             .source
             .contains("[attachment](<assets/test.pdf>)")
@@ -39,8 +47,8 @@ fn directory_chevron_animates_and_stops() {
     let (mut app, _) = App::boot();
     let id = DirectoryHandle(99);
     let start = std::time::Instant::now();
-    app.vm.expanded.insert(id);
-    app.tree_motion.insert(id, (0.0, 90.0, start));
+    app.vm.workspace.expanded.insert(id);
+    app.chevrons.motion.insert(id, (0.0, 90.0, start));
     let _ = app.update(Message::AnimateTree(
         start + std::time::Duration::from_millis(75),
     ));
@@ -49,70 +57,83 @@ fn directory_chevron_animates_and_stops() {
         start + std::time::Duration::from_millis(160),
     ));
     assert_eq!(app.tree_angle(id), 90.0);
-    assert!(app.tree_motion.is_empty());
+    assert!(app.chevrons.motion.is_empty());
 }
 
 #[test]
 fn dropped_images_and_attachments_insert_markdown_and_undo() {
     let (mut app, _) = App::boot();
     insert(&mut app, "本文\n");
-    let original = app.vm.document.source.clone();
-    let epoch = app.vm.document_epoch;
-    let revision = app.vm.document.revision;
+    let original = app.vm.session.document.source.clone();
+    let epoch = app.vm.session.epoch;
+    let revision = app.vm.session.document.revision;
     let selection = app.editor.source_selection();
     let _ = app.update(Message::DropAsset(
         Ok(ResourceLink {
             label: "画像[1]".into(),
             destination: "assets/image.png".into(),
         }),
-        true,
-        epoch,
-        revision,
-        selection,
+        Placement {
+            image: true,
+            epoch,
+            revision,
+            selection,
+        },
     ));
     assert!(
         app.vm
+            .session
             .document
             .source
             .contains("![画像\\[1\\]](<assets/image.png>)")
     );
     assert!(!app.features.outline);
-    let revision = app.vm.document.revision;
+    let revision = app.vm.session.document.revision;
     let selection = app.editor.source_selection();
     let _ = app.update(Message::DropAsset(
         Ok(ResourceLink {
             label: "資料".into(),
             destination: "assets/file.pdf".into(),
         }),
-        false,
-        epoch,
-        revision,
-        selection,
+        Placement {
+            image: false,
+            epoch,
+            revision,
+            selection,
+        },
     ));
-    assert!(app.vm.document.source.contains("[資料](<assets/file.pdf>)"));
+    assert!(
+        app.vm
+            .session
+            .document
+            .source
+            .contains("[資料](<assets/file.pdf>)")
+    );
     let _ = app.dispatch(Command::Undo, false);
-    assert!(!app.vm.document.source.contains("file.pdf"));
+    assert!(!app.vm.session.document.source.contains("file.pdf"));
     let _ = app.dispatch(Command::Undo, false);
-    assert_eq!(app.vm.document.source, original);
+    assert_eq!(app.vm.session.document.source, original);
     let _ = app.update(Message::DropAsset(
         Ok(ResourceLink {
             label: "stale".into(),
             destination: "assets/stale.png".into(),
         }),
-        true,
-        epoch + 1,
-        app.vm.document.revision,
-        0..0,
+        Placement {
+            image: true,
+            epoch: epoch + 1,
+            revision: app.vm.session.document.revision,
+            selection: 0..0,
+        },
     ));
-    assert_eq!(app.vm.document.source, original);
+    assert_eq!(app.vm.session.document.source, original);
 }
 
 #[test]
 fn multiple_attachment_drops_queue_without_losing_paths() {
     let (mut app, _) = App::boot();
-    app.resolving_drop = true;
+    app.drops.resolving = true;
     // A saved document avoids triggering a save dialog in this queue test.
-    app.vm.file = Some(SaveTarget {
+    app.vm.session.file = Some(SaveTarget {
         file: FileRef {
             handle: FileHandle(999),
             name: "note.md".into(),
@@ -122,23 +143,20 @@ fn multiple_attachment_drops_queue_without_losing_paths() {
     for name in ["one.png", "two.pdf"] {
         let _ = app.update(Message::Dropped(name.into()));
     }
-    assert_eq!(app.drop_queue.len(), 2);
-    assert_eq!(app.drop_queue[0].0, std::path::PathBuf::from("one.png"));
-    assert_eq!(app.drop_queue[1].0, std::path::PathBuf::from("two.pdf"));
-    app.vm.document_epoch += 1;
-    app.resolving_drop = false;
+    assert_eq!(app.drops.queue.len(), 2);
+    assert_eq!(app.drops.queue[0].0, std::path::PathBuf::from("one.png"));
+    assert_eq!(app.drops.queue[1].0, std::path::PathBuf::from("two.pdf"));
+    app.vm.session.epoch += 1;
+    app.drops.resolving = false;
     let _ = app.resume_drops();
-    assert!(app.drop_queue.is_empty());
+    assert!(app.drops.queue.is_empty());
 }
 
 fn document_click_point(app: &App, task: bool) -> iced::Point {
     use iced::advanced::{layout, widget::Tree};
-    let mut element = app.editor.view(
-        &theme::theme(app.light),
-        true,
-        &app.features.diagrams,
-        &app.features.images,
-    );
+    let mut element = app
+        .editor
+        .view(&theme::theme(app.light), true, &app.features.media);
     let mut tree = Tree::new(&element);
     let renderer = iced::Renderer::new(iced::Font::DEFAULT, 15.0.into());
     element.as_widget_mut().layout(
@@ -169,22 +187,22 @@ fn checkbox_click_toggles_and_ctrl_click_edits_without_toggling() {
     let _ = app.update(Message::Editor(EditorEvent::Action(EditAction::Click(
         point,
     ))));
-    assert_eq!(app.vm.document.source, "- [x] todo\n");
+    assert_eq!(app.vm.session.document.source, "- [x] todo\n");
     assert!(app.editor.displayed().contains('☑'));
     let point = document_click_point(&app, true);
     let _ = app.update(Message::Editor(EditorEvent::Action(EditAction::Click(
         point,
     ))));
-    assert_eq!(app.vm.document.source, "- [ ] todo\n");
+    assert_eq!(app.vm.session.document.source, "- [ ] todo\n");
     let point = document_click_point(&app, true);
     let _ = app.update(Message::Modifiers(iced::keyboard::Modifiers::CTRL));
     let _ = app.update(Message::Editor(EditorEvent::Action(EditAction::Click(
         point,
     ))));
-    assert_eq!(app.vm.document.source, "- [ ] todo\n");
+    assert_eq!(app.vm.session.document.source, "- [ ] todo\n");
     assert!(app.editor.displayed().contains("[ ]"));
     let _ = app.dispatch(Command::Undo, false);
-    assert_eq!(app.vm.document.source, "- [x] todo\n");
+    assert_eq!(app.vm.session.document.source, "- [x] todo\n");
 }
 
 #[test]
@@ -207,7 +225,7 @@ fn link_click_navigates_and_ctrl_click_reveals_source() {
     let _ = app.update(Message::Editor(EditorEvent::Action(EditAction::Click(
         point,
     ))));
-    assert_eq!(app.vm.document.source, source);
+    assert_eq!(app.vm.session.document.source, source);
     assert!(app.editor.displayed().contains("[go](#target)"));
     assert!(app.editor.source_selection().start < source.find("\n").unwrap());
     app.editor.set_mode(Mode::Source);
@@ -218,25 +236,25 @@ fn link_click_navigates_and_ctrl_click_reveals_source() {
 fn menu_hover_switches_only_after_open_and_escape_closes() {
     let (mut app, _) = App::boot();
     let _ = app.update(Message::MenuHover(1));
-    assert_eq!(app.open_menu, None);
+    assert_eq!(app.menu.open, None);
     let _ = app.update(Message::MenuToggle(0));
     let _ = app.update(Message::MenuHover(1));
-    assert_eq!(app.open_menu, Some(1));
+    assert_eq!(app.menu.open, Some(1));
     let _ = app.update(Message::MenuHover(3));
-    assert_eq!(app.open_menu, Some(3));
+    assert_eq!(app.menu.open, Some(3));
     let _ = app.update(Message::Menu(MenuAction::DisplayMode));
-    assert!(app.mode_menu);
-    assert_eq!(app.open_menu, Some(3));
+    assert!(app.menu.modes);
+    assert_eq!(app.menu.open, Some(3));
     let _ = app.update(Message::Menu(MenuAction::Source));
     assert_eq!(app.mode, Mode::Source);
-    assert!(!app.mode_menu);
-    assert_eq!(app.open_menu, None);
+    assert!(!app.menu.modes);
+    assert_eq!(app.menu.open, None);
     let _ = app.update(Message::MenuToggle(3));
     let _ = app.update(Message::Escape);
-    assert_eq!(app.open_menu, None);
+    assert_eq!(app.menu.open, None);
     let _ = app.update(Message::MenuToggle(0));
     let _ = app.update(Message::MenuClose);
-    assert_eq!(app.open_menu, None);
+    assert_eq!(app.menu.open, None);
 }
 
 fn insert(app: &mut App, text: &str) {
@@ -256,10 +274,10 @@ fn table_cell_edit_preserves_alignment_and_undo() {
         norito_editor_widget::TableAction::Cell(1, 0, "変更".into()),
     )));
 
-    assert!(app.vm.document.source.contains("| :--- | ---: |"));
-    assert!(app.vm.document.source.contains("変更"));
+    assert!(app.vm.session.document.source.contains("| :--- | ---: |"));
+    assert!(app.vm.session.document.source.contains("変更"));
     let _ = app.dispatch(Command::Undo, false);
-    assert_eq!(app.vm.document.source, original);
+    assert_eq!(app.vm.session.document.source, original);
 }
 
 #[test]
@@ -270,12 +288,12 @@ fn dropped_file_uses_unsaved_confirmation_and_cancel_preserves_document() {
         handle: FileHandle(42),
         name: "drop.md".into(),
     };
-    let _ = app.update(Message::DropResolved(Ok(file), app.vm.document_epoch));
+    let _ = app.update(Message::DropResolved(Ok(file), app.vm.session.epoch));
     assert!(matches!(app.vm.pending, Some(Action::OpenFile(_))));
-    assert_eq!(app.vm.document.source, "保存前の本文");
+    assert_eq!(app.vm.session.document.source, "保存前の本文");
     let _ = app.update(Message::Command(Command::Cancel));
     assert!(app.vm.pending.is_none());
-    assert_eq!(app.vm.document.source, "保存前の本文");
+    assert_eq!(app.vm.session.document.source, "保存前の本文");
 }
 
 #[test]
@@ -286,18 +304,18 @@ fn context_cut_paste_and_undo_use_document_history() {
     let _ = app.update(Message::Context(true));
     assert_eq!(app.editor.selected_text(), "日本語");
     let _ = app.update(Message::EditMenu(super::EditAction::Cut));
-    assert_eq!(app.vm.document.source, "");
+    assert_eq!(app.vm.session.document.source, "");
     let _ = app.update(Message::Command(Command::Undo));
-    assert_eq!(app.vm.document.source, "日本語");
+    assert_eq!(app.vm.session.document.source, "日本語");
     let _ = app.update(Message::EditMenu(super::EditAction::SelectAll));
-    let epoch = app.vm.document_epoch;
-    let revision = app.vm.document.revision;
+    let epoch = app.vm.session.epoch;
+    let revision = app.vm.session.document.revision;
     let _ = app.update(Message::Paste(Some(String::new()), epoch, revision));
-    assert_eq!(app.vm.document.source, "日本語");
+    assert_eq!(app.vm.session.document.source, "日本語");
     let _ = app.update(Message::Paste(Some("置換".into()), epoch, revision));
-    assert_eq!(app.vm.document.source, "置換");
+    assert_eq!(app.vm.session.document.source, "置換");
     let _ = app.update(Message::Paste(Some("遅延した結果".into()), epoch, revision));
-    assert_eq!(app.vm.document.source, "置換");
+    assert_eq!(app.vm.session.document.source, "置換");
 }
 
 #[test]
@@ -309,7 +327,7 @@ fn menu_edit_actions_do_not_interrupt_composition() {
     let _ = app.update(Message::Context(true));
     let _ = app.update(Message::EditMenu(super::EditAction::Cut));
     assert!(app.context.is_none());
-    assert_eq!(app.vm.document.source, "本文");
+    assert_eq!(app.vm.session.document.source, "本文");
 }
 
 #[test]
@@ -347,16 +365,16 @@ fn table_tab_ime_spaces_and_escape_preserve_the_document() {
         "日本語 ".into(),
     ))));
     let _ = app.update(Message::Composing(false));
-    assert!(app.vm.document.source.contains("日本語  |"));
+    assert!(app.vm.session.document.source.contains("日本語  |"));
     let _ = app.update(Message::Editor(EditorEvent::Table(T::Move(false))));
     assert_eq!(app.features.structure.tables[0].cells.len(), 3);
     assert_eq!(app.editor.table_focus_id().as_deref(), Some("table-2-0"));
     let _ = app.update(Message::Editor(EditorEvent::Table(T::Move(true))));
     assert_eq!(app.editor.table_focus_id().as_deref(), Some("table-1-1"));
-    let before = app.vm.document.source.clone();
+    let before = app.vm.session.document.source.clone();
     let _ = app.update(Message::Escape);
     assert!(!app.editor.table_active());
-    assert_eq!(app.vm.document.source, before);
+    assert_eq!(app.vm.session.document.source, before);
 }
 
 #[test]
@@ -374,7 +392,7 @@ fn table_column_alignment_and_document_replacement_clear_stale_editors() {
         0,
         "古い入力".into(),
     ))));
-    assert_eq!(app.vm.document.source, "別の本文");
+    assert_eq!(app.vm.session.document.source, "別の本文");
 }
 #[test]
 fn code_helper_replaces_formatted_selection_without_leaving_delimiters() {
@@ -384,17 +402,10 @@ fn code_helper_replaces_formatted_selection_without_leaving_delimiters() {
     let _ = app.update(Message::EditMenu(super::EditAction::SelectAll));
     let _ = app.feature(Event::Open(Kind::Code));
 
-    assert_eq!(app.vm.document.source, "```text\n本文\n```\n");
+    assert_eq!(app.vm.session.document.source, "```text\n本文\n```\n");
     assert_eq!(app.features.structure.code.len(), 1);
 }
 
-#[test]
-fn mermaid_renderer_produces_svg_and_reports_invalid_input() {
-    let svg = mermaid_rs_renderer::render("flowchart LR\n A[開始] --> B[終了]").unwrap();
-    assert!(svg.contains("<svg"));
-    assert!(svg.contains("開始"));
-    assert!(mermaid_rs_renderer::render("this is not a diagram").is_err());
-}
 #[test]
 fn search_replace_all_is_one_undoable_edit() {
     use features::Event;
@@ -404,18 +415,10 @@ fn search_replace_all_is_one_undoable_edit() {
     let _ = app.feature(Event::Query("本文".into()));
     let _ = app.feature(Event::Replacement("文".into()));
     let _ = app.feature(Event::Replace(true));
-    assert_eq!(app.vm.document.source, "文A 文B");
+    assert_eq!(app.vm.session.document.source, "文A 文B");
     let _ = app.update(Message::Command(Command::Undo));
-    assert_eq!(app.vm.document.source, "本文A 本文B");
+    assert_eq!(app.vm.session.document.source, "本文A 本文B");
 }
-#[test]
-fn math_renderer_produces_paths_for_fractions() {
-    let font = latex_rust::MathFont::stix_two_math().unwrap();
-    let svg =
-        latex_rust::latex_to_svg(r"\frac{1}{2}", &font, &latex_rust::SvgOptions::new()).unwrap();
-    assert!(svg.contains("<path"));
-}
-
 #[test]
 fn page_anchor_waits_for_navigation_and_cancel_clears_it() {
     let (mut app, _) = App::boot();
@@ -427,11 +430,11 @@ fn page_anchor_waits_for_navigation_and_cancel_clears_it() {
     let _ = app.feature(features::Event::PageReady(
         Ok(file),
         "target".into(),
-        app.vm.document_epoch,
+        app.vm.session.epoch,
     ));
     assert!(app.vm.pending.is_some());
     assert_eq!(app.features.pending_anchor.as_deref(), Some("target"));
     let _ = app.update(Message::Command(Command::Cancel));
     assert!(app.features.pending_anchor.is_none());
-    assert_eq!(app.vm.document.source, "# 元の文書");
+    assert_eq!(app.vm.session.document.source, "# 元の文書");
 }

@@ -23,6 +23,7 @@ norito-platform-mock = { path = "crates/norito-platform-mock" }
 norito-viewmodel = { path = "crates/norito-viewmodel" }
 norito-iced-ext = { path = "crates/norito-iced-ext" }
 norito-editor-widget = { path = "crates/norito-editor-widget" }
+norito-render = { path = "crates/norito-render" }
 
 [profile.dev]
 debug = 1

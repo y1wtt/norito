@@ -1,5 +1,5 @@
-//! Structural editing helpers. All ranges refer to the original Markdown bytes.
-use pulldown_cmark::{CodeBlockKind, Event, Parser, Tag, TagEnd};
+//! Navigation-level facts extracted from a source. All ranges refer to the original Markdown bytes.
+use pulldown_cmark::{Alignment, CodeBlockKind, Event, Parser, Tag, TagEnd};
 use std::ops::Range;
 
 #[derive(Debug, Clone)]
@@ -34,6 +34,12 @@ pub struct Table {
     pub alignment: Vec<u8>,
     pub range: Range<usize>,
 }
+/// A block rendered as an image. Equal sources share one rendering.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum Diagram {
+    Mermaid(String),
+    Math(String),
+}
 #[derive(Debug, Clone, Default)]
 pub struct Structure {
     pub footnotes: Vec<(String, usize)>,
@@ -44,17 +50,49 @@ pub struct Structure {
     pub tables: Vec<Table>,
 }
 
+impl CodeBlock {
+    pub fn is_mermaid(&self) -> bool {
+        crate::syntax::is_mermaid(&self.language)
+    }
+}
+impl Math {
+    pub fn diagram(&self) -> Diagram {
+        Diagram::Math(self.content.clone())
+    }
+}
+
 impl Structure {
+    /// Every diagram and formula, in document order: the set worth rendering.
+    pub fn diagrams(&self) -> impl Iterator<Item = Diagram> + '_ {
+        self.code
+            .iter()
+            .filter(|code| code.is_mermaid())
+            .map(|code| Diagram::Mermaid(code.content.clone()))
+            .chain(self.math.iter().map(Math::diagram))
+    }
+    pub fn heading(&self, anchor: &str) -> Option<&Heading> {
+        self.headings.iter().find(|h| h.anchor == anchor)
+    }
+    pub fn footnote(&self, label: &str) -> Option<usize> {
+        self.footnotes
+            .iter()
+            .find_map(|(name, offset)| (name == label).then_some(*offset))
+    }
+    /// The non-image link whose source contains `at`, delimiters included.
+    pub fn link_at(&self, at: usize) -> Option<&Link> {
+        self.links
+            .iter()
+            .find(|link| !link.image && link.range.start <= at && at <= link.range.end)
+    }
     pub fn parse(source: &str) -> Self {
         let mut result = Self::default();
-        let mut heading = None;
+        let mut heading: Option<Heading> = None;
         let mut link: Option<Link> = None;
         let mut code: Option<CodeBlock> = None;
         let mut table: Option<Table> = None;
         let mut cell: Option<String> = None;
         let mut row = Vec::new();
-        for (event, range) in Parser::new_ext(source, crate::markdown_options()).into_offset_iter()
-        {
+        for (event, range) in Parser::new_ext(source, crate::syntax::options()).into_offset_iter() {
             match event {
                 Event::Start(Tag::FootnoteDefinition(label)) => {
                     result.footnotes.push((label.into_string(), range.start))
@@ -85,26 +123,7 @@ impl Structure {
                 }
                 Event::End(TagEnd::Heading(_)) => {
                     if let Some(mut h) = heading.take() {
-                        let base: String = h
-                            .title
-                            .to_lowercase()
-                            .chars()
-                            .filter_map(|c| {
-                                if c.is_whitespace() {
-                                    Some('-')
-                                } else if c.is_alphanumeric() || c == '-' || c == '_' {
-                                    Some(c)
-                                } else {
-                                    None
-                                }
-                            })
-                            .collect();
-                        h.anchor = base.clone();
-                        let mut suffix = 1;
-                        while result.headings.iter().any(|other| other.anchor == h.anchor) {
-                            h.anchor = format!("{base}-{suffix}");
-                            suffix += 1;
-                        }
+                        h.anchor = anchor(&h.title, &result.headings);
                         result.headings.push(h);
                     }
                 }
@@ -143,8 +162,8 @@ impl Structure {
                         alignment: alignment
                             .iter()
                             .map(|a| match a {
-                                pulldown_cmark::Alignment::Center => 1,
-                                pulldown_cmark::Alignment::Right => 2,
+                                Alignment::Center => 1,
+                                Alignment::Right => 2,
                                 _ => 0,
                             })
                             .collect(),
@@ -185,45 +204,28 @@ impl Structure {
     }
 }
 
-pub fn table_markdown(cells: &[Vec<String>]) -> String {
-    let columns = cells.first().map_or(0, Vec::len);
-    if columns == 0 {
-        return String::new();
+/// GitHub-style slug, made unique against the headings already seen.
+fn anchor(title: &str, seen: &[Heading]) -> String {
+    let base: String = title
+        .to_lowercase()
+        .chars()
+        .filter_map(|c| {
+            if c.is_whitespace() {
+                Some('-')
+            } else if c.is_alphanumeric() || c == '-' || c == '_' {
+                Some(c)
+            } else {
+                None
+            }
+        })
+        .collect();
+    let mut anchor = base.clone();
+    let mut suffix = 1;
+    while seen.iter().any(|other| other.anchor == anchor) {
+        anchor = format!("{base}-{suffix}");
+        suffix += 1;
     }
-    let mut out = String::new();
-    for (index, row) in cells.iter().enumerate() {
-        out.push('|');
-        for column in 0..columns {
-            out.push(' ');
-            out.push_str(
-                &row.get(column)
-                    .cloned()
-                    .unwrap_or_default()
-                    .replace('|', "\\|")
-                    .replace(['\r', '\n'], " "),
-            );
-            out.push_str(" |");
-        }
-        out.push('\n');
-        if index == 0 {
-            out.push_str(&format!("|{}\n", " --- |".repeat(columns)));
-        }
-    }
-    out
-}
-
-pub fn fenced_code(language: &str, content: &str) -> String {
-    let longest = content.split(|c| c != '`').map(str::len).max().unwrap_or(0);
-    let fence = "`".repeat(3.max(longest + 1));
-    let language = language.replace(['`', '\r', '\n'], "");
-    format!(
-        "{fence}{language}\n{}{fence}\n",
-        if content.ends_with('\n') {
-            content.to_owned()
-        } else {
-            format!("{content}\n")
-        }
-    )
+    anchor
 }
 
 #[cfg(test)]
@@ -238,21 +240,17 @@ mod tests {
         assert!(s.links[1].image);
         assert_eq!(s.code[0].language, "mermaid");
         assert!(source[s.code[0].range.clone()].starts_with("```"));
+        assert_eq!(
+            s.diagrams().collect::<Vec<_>>(),
+            [Diagram::Mermaid("flowchart LR\n A-->B\n".into())]
+        );
+        assert_eq!(s.heading("日本語-1").unwrap().offset, 13);
     }
     #[test]
-    fn helpers_round_trip_pipes_and_nested_fences() {
-        let cells = vec![
-            vec!["名前".into(), "値".into()],
-            vec!["a | b".into(), "x".into()],
-        ];
-        assert_eq!(
-            Structure::parse(&table_markdown(&cells)).tables[0].cells,
-            cells
-        );
-        let text = "```rust\nfn main() {}\n```";
-        assert_eq!(
-            Structure::parse(&fenced_code("markdown", text)).code[0].content,
-            format!("{text}\n")
-        );
+    fn metadata_is_not_a_heading_and_reference_labels_resolve() {
+        let source = "---\ntitle: draft\n---\n\n# Title\n\n[page][p]\n\n[p]: other.md\n";
+        let structure = Structure::parse(source);
+        assert_eq!(structure.headings.len(), 1);
+        assert_eq!(structure.links[0].destination, "other.md");
     }
 }

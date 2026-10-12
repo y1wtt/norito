@@ -1,13 +1,30 @@
+//! Effects -> port calls -> `Command::Completed`. The view model never touches an adapter.
+use crate::{Message, services::Services};
+use iced::Task;
 use norito_platform::*;
-use norito_viewmodel::{Request, Response};
+use norito_viewmodel::{Command, Effect, Request, Response};
 
-/// The host injects concrete adapters through these independent ports.
-pub fn execute(
-    files: &dyn FileStore,
-    directories: &dyn DirectoryStore,
-    dialogs: &dyn FileDialog,
-    request: Request,
-) -> Result<Response> {
+pub fn perform(services: &Services, effects: Vec<Effect>) -> Task<Message> {
+    Task::batch(effects.into_iter().map(|effect| {
+        if matches!(effect.request, Request::Exit) {
+            return iced::exit();
+        }
+        let services = services.clone();
+        let id = effect.id;
+        crate::services::blocking(
+            move || execute(&services, effect.request),
+            move |result| Message::Command(Command::Completed(id, result)),
+        )
+    }))
+}
+
+fn execute(services: &Services, request: Request) -> Result<Response> {
+    let Services {
+        files,
+        directories,
+        dialogs,
+        ..
+    } = services;
     match request {
         Request::CreateDirectory(parent, name) => {
             let dir = directories.create_directory(parent.handle, &name)?;
