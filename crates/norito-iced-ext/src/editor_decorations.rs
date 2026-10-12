@@ -360,23 +360,26 @@ impl<Message: Clone> Widget<Message, Theme, Renderer> for Decorated<'_, Message>
                                         theme.palette().background
                                     },
                                 );
+                                // fill_text positions the text by its alignment anchor.
+                                let inner = cell.shrink(7.0);
+                                let (align_x, x) = match alignment.get(c) {
+                                    Some(1) => (text::Alignment::Center, inner.center_x()),
+                                    Some(2) => (text::Alignment::Right, inner.x + inner.width),
+                                    _ => (text::Alignment::Default, inner.x),
+                                };
                                 renderer.fill_text(
                                     text::Text {
                                         content: value.clone(),
-                                        bounds: cell.shrink(7.0).size(),
+                                        bounds: inner.size(),
                                         font: iced::Font::with_name("Yu Gothic UI"),
                                         size: 14.0.into(),
                                         line_height: text::LineHeight::Relative(1.4),
-                                        align_x: match alignment.get(c) {
-                                            Some(1) => text::Alignment::Center,
-                                            Some(2) => text::Alignment::Right,
-                                            _ => text::Alignment::Default,
-                                        },
+                                        align_x,
                                         align_y: iced::alignment::Vertical::Top,
                                         shaping: text::Shaping::Advanced,
                                         wrapping: text::Wrapping::None,
                                     },
-                                    cell.position() + iced::Vector::new(7.0, 7.0),
+                                    iced::Point::new(x, inner.y),
                                     theme.palette().text,
                                     cell.intersection(&clip).unwrap_or_default(),
                                 );

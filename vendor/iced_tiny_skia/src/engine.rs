@@ -409,20 +409,14 @@ impl Engine {
                 align_x,
                 align_y,
                 shaping,
-                clip_bounds: local_clip_bounds,
+                ..
             } => {
-                let physical_bounds = *local_clip_bounds * transformation;
-
-                if !clip_bounds.intersects(&physical_bounds) {
+                // Ink is limited to the aligned text area within the local
+                // clip, matching the damage bounds of the text.
+                let Some(clip_bounds) = text.visible_bounds().and_then(
+                    |bounds| clip_bounds.intersection(&(bounds * transformation)),
+                ) else {
                     return;
-                }
-
-                let clip_mask = match physical_bounds.is_within(&clip_bounds) {
-                    true => None,
-                    false => {
-                        adjust_clip_mask(clip_mask, clip_bounds);
-                        Some(clip_mask as &_)
-                    }
                 };
 
                 self.text_pipeline.draw_cached(
@@ -437,6 +431,7 @@ impl Engine {
                     *shaping,
                     pixels,
                     clip_mask,
+                    clip_bounds,
                     transformation,
                 );
             }

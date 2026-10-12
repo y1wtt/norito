@@ -180,6 +180,84 @@ mod tests {
         );
     }
     #[test]
+    fn aligned_and_overflowing_text_stays_inside_its_clip() {
+        use iced::advanced::text::{self, Renderer as _};
+        use iced::{Color, Point, Rectangle, Size};
+        // Cells partially scrolled above the viewport, as in a table decoration.
+        let viewport = Rectangle::new(Point::new(0.0, 20.0), Size::new(250.0, 80.0));
+        let cells = [
+            Rectangle::new(Point::new(30.0, 8.0), Size::new(90.0, 34.0)),
+            Rectangle::new(Point::new(120.0, 8.0), Size::new(90.0, 34.0)),
+        ];
+        let draw = |renderer: &mut iced_tiny_skia::Renderer| {
+            for (cell, align_x, content) in [
+                (cells[0], text::Alignment::Center, "Center"),
+                (cells[1], text::Alignment::Left, "Overflowing cell text"),
+            ] {
+                let inner = cell.shrink(7.0);
+                renderer.fill_text(
+                    text::Text {
+                        content: content.into(),
+                        bounds: inner.size(),
+                        size: 14.0.into(),
+                        line_height: text::LineHeight::Relative(1.4),
+                        font: Font::DEFAULT,
+                        align_x,
+                        align_y: iced::alignment::Vertical::Top,
+                        shaping: text::Shaping::Advanced,
+                        wrapping: text::Wrapping::None,
+                    },
+                    // A centered anchor at the left edge must not leak either.
+                    Point::new(inner.x, inner.y),
+                    Color::BLACK,
+                    cell.intersection(&viewport).unwrap(),
+                );
+            }
+        };
+        let mut snapshots = Vec::new();
+        for damage in [
+            Rectangle::new(Point::ORIGIN, Size::new(250.0, 100.0)),
+            viewport,
+        ] {
+            let mut renderer = iced_tiny_skia::Renderer::new(Font::DEFAULT, 14.0.into());
+            draw(&mut renderer);
+            let mut pixmap = tiny_skia::Pixmap::new(250, 100).unwrap();
+            pixmap.fill(tiny_skia::Color::WHITE);
+            let mut mask = tiny_skia::Mask::new(250, 100).unwrap();
+            renderer.draw(
+                &mut pixmap.as_mut(),
+                &mut mask,
+                &iced::advanced::graphics::Viewport::with_physical_size(Size::new(250, 100), 1.0),
+                &[damage],
+                Color::WHITE,
+            );
+            assert!(
+                pixmap.pixels().iter().any(|p| p.red() != 255),
+                "test must render ink"
+            );
+            for y in 0..100 {
+                for x in 0..250 {
+                    let point = Point::new(x as f32 + 0.5, y as f32 + 0.5);
+                    if !cells
+                        .iter()
+                        .any(|cell| cell.contains(point) && viewport.contains(point))
+                    {
+                        assert_eq!(
+                            pixmap.pixel(x, y).unwrap().red(),
+                            255,
+                            "ink leaked at {x},{y}"
+                        );
+                    }
+                }
+            }
+            snapshots.push(pixmap.data().to_vec());
+        }
+        assert_eq!(
+            snapshots[0], snapshots[1],
+            "damage rectangles must not change the output"
+        );
+    }
+    #[test]
     fn changed_styles_restart_at_first_changed_line() {
         let first = Styles(Arc::new(vec![vec![], vec![], vec![]]));
         let mut h = StyledText::new(&first);

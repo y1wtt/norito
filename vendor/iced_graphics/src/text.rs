@@ -95,8 +95,59 @@ impl Text {
             Text::Cached {
                 bounds,
                 clip_bounds,
+                size,
+                align_x,
+                align_y,
                 ..
-            } => bounds.intersection(clip_bounds),
+            } => {
+                // `bounds.position()` is the alignment anchor, not the
+                // top-left corner. Renderers clip ink to this area, so
+                // damage tracking covers every pixel the text paints.
+                fn span(
+                    start: f32,
+                    length: f32,
+                    anchor: f32,
+                    clip: (f32, f32),
+                ) -> (f32, f32) {
+                    let (from, to) = if length.is_finite() {
+                        let from = start - length * anchor;
+                        (from, from + length)
+                    } else {
+                        (f32::NEG_INFINITY, f32::INFINITY)
+                    };
+                    (from.max(clip.0), to.min(clip.1))
+                }
+                let anchor_x = match align_x {
+                    Alignment::Center => 0.5,
+                    Alignment::Right => 1.0,
+                    _ => 0.0,
+                };
+                let anchor_y = match align_y {
+                    alignment::Vertical::Top => 0.0,
+                    alignment::Vertical::Center => 0.5,
+                    alignment::Vertical::Bottom => 1.0,
+                };
+                // Glyphs may extend slightly above or below the line box.
+                let overhang = size.0 / 2.0;
+                let (x0, x1) = span(
+                    bounds.x,
+                    bounds.width,
+                    anchor_x,
+                    (clip_bounds.x, clip_bounds.x + clip_bounds.width),
+                );
+                let (y0, y1) = span(
+                    bounds.y - overhang,
+                    bounds.height + overhang * 2.0,
+                    anchor_y,
+                    (clip_bounds.y, clip_bounds.y + clip_bounds.height),
+                );
+                (x1 > x0 && y1 > y0).then(|| Rectangle {
+                    x: x0,
+                    y: y0,
+                    width: x1 - x0,
+                    height: y1 - y0,
+                })
+            }
             Text::Raw { raw, .. } => Some(raw.clip_bounds),
         }
     }
