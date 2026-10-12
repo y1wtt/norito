@@ -1,0 +1,11 @@
+[package]
+name = "norito-editor-widget"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+iced.workspace = true
+norito-iced-ext.workspace = true
+norito-model.workspace = true
+syntect = { version = "=5.3.0", default-features = false, features = ["default-fancy"] }

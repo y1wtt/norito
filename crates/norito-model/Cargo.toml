@@ -1,0 +1,8 @@
+[package]
+name = "norito-model"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+pulldown-cmark = "=0.12.2"

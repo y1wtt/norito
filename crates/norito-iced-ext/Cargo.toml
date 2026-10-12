@@ -1,0 +1,12 @@
+[package]
+name = "norito-iced-ext"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+iced.workspace = true
+
+[dev-dependencies]
+iced_tiny_skia = "=0.14.1"
+tiny-skia = "0.11"

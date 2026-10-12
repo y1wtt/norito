@@ -1,0 +1,12 @@
+[package]
+name = "norito-viewmodel"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+norito-model.workspace = true
+norito-platform.workspace = true
+
+[dev-dependencies]
+norito-platform-mock.workspace = true
