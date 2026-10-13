@@ -6,8 +6,22 @@ use iced::{
 };
 
 pub(crate) fn outline_icon<'a>(path: &str, size: f32, color: Color) -> Svg<'a, iced::Theme> {
+    icon(
+        path,
+        r#"fill="none" stroke="black" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round""#,
+        size,
+        color,
+    )
+}
+
+/// A solid shape, such as the unsaved-changes dot.
+pub(crate) fn filled_icon<'a>(path: &str, size: f32, color: Color) -> Svg<'a, iced::Theme> {
+    icon(path, r#"fill="black""#, size, color)
+}
+
+fn icon<'a>(path: &str, paint: &str, size: f32, color: Color) -> Svg<'a, iced::Theme> {
     let source = format!(
-        r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="{path}" fill="none" stroke="black" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>"#
+        r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="{path}" {paint}/></svg>"#
     );
     svg(svg::Handle::from_memory(source.into_bytes()))
         .width(size)

@@ -1,7 +1,7 @@
 //! Screen layout. Each region is drawn by its own module: `menu_bar` (title row
 //! and dropdowns), `sidebar` (folder tree), `page` (editor and its overlays),
 //! `dialog` (unsaved changes) and `controls` (shared buttons and icons).
-mod controls;
+pub(crate) mod controls;
 mod dialog;
 mod menu_bar;
 mod page;

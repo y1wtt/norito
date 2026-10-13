@@ -1,5 +1,5 @@
 //! The sidebar: folder header, creation buttons, and the lazily listed tree.
-use super::controls::{ellipsize, outline_icon, panel};
+use super::controls::{ellipsize, filled_icon, outline_icon, panel};
 use crate::{App, Message, icons, theme};
 use iced::{
     Element, Length,
@@ -195,23 +195,20 @@ impl App {
     fn entry<'a>(&self, entry: &'a Entry) -> Element<'a, Message> {
         let c = theme::colors(self.light);
         let session = &self.vm.session;
-        let (label, command, selected) = match entry {
+        let (label, command, selected, dirty) = match entry {
             Entry::File(file) => {
                 let current = session.is(file.handle);
-                let mark = if current && session.document.dirty() {
-                    "  ●"
-                } else {
-                    ""
-                };
                 (
-                    format!("{}{mark}", file.name),
+                    file.name.clone(),
                     Command::Navigate(Action::OpenFile(file.clone())),
                     current,
+                    current && session.document.dirty(),
                 )
             }
             Entry::Directory(dir) => (
                 dir.name.clone(),
                 Command::ToggleDirectory(dir.clone()),
+                false,
                 false,
             ),
         };
@@ -220,6 +217,10 @@ impl App {
         let mut label = row![text(label).size(12).color_maybe(target.then_some(c.accent))]
             .spacing(4)
             .align_y(iced::Alignment::Center);
+        if dirty {
+            // Matches the accent of the selected label.
+            label = label.push(filled_icon(icons::DOT, 14.0, c.accent));
+        }
         if let Entry::Directory(dir) = entry {
             let angle = self.tree_angle(dir.handle);
             let source = format!(
