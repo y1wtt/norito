@@ -77,13 +77,15 @@ impl App {
     }
     fn diagram_view(&self, diagram: &Diagram) -> Element<'_, Message> {
         match self.features.media.diagrams.get(diagram) {
-            Some(Ok(handle)) => container(widget::svg(handle.clone()).width(Length::Fill))
-                .padding(8)
-                .style(|_| widget::container::Style {
-                    background: Some(iced::Color::WHITE.into()),
-                    ..Default::default()
-                })
-                .into(),
+            Some(Ok(rendered)) => {
+                container(widget::svg(rendered.handle.clone()).width(Length::Fill))
+                    .padding(8)
+                    .style(|_| widget::container::Style {
+                        background: Some(iced::Color::WHITE.into()),
+                        ..Default::default()
+                    })
+                    .into()
+            }
             Some(Err(error)) => text(format!("Mermaid: {error}")).size(12).into(),
             None => text("図を描画中…").size(12).into(),
         }

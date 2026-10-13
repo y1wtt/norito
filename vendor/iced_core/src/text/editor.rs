@@ -33,6 +33,8 @@ pub trait Editor: Sized + Default {
     fn line_bounds(&self, _line: usize) -> Option<Rectangle> { None }
     /// Visible glyph bounds within a logical line.
     fn span_bounds(&self, _line: usize, _range: std::ops::Range<usize>) -> Vec<Rectangle> { vec![] }
+    /// Baseline of the first visual line holding glyphs of a logical-line range.
+    fn span_baseline(&self, _line: usize, _range: std::ops::Range<usize>) -> Option<f32> { None }
 
     /// A temporary composition layout. Does not edit the document or its history.
     fn with_preedit(&self, _content: &str, _selection: Option<std::ops::Range<usize>>) -> Option<Self> { None }

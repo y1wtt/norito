@@ -476,6 +476,10 @@ where
     pub fn span_bounds(&self, line: usize, range: std::ops::Range<usize>) -> Vec<Rectangle> {
         self.0.borrow().editor.span_bounds(line, range)
     }
+    /// Baseline of the first visual line holding a UTF-8 byte range of one logical line.
+    pub fn span_baseline(&self, line: usize, range: std::ops::Range<usize>) -> Option<f32> {
+        self.0.borrow().editor.span_baseline(line, range)
+    }
 
     /// Returns the amount of lines of the [`Content`].
     pub fn line_count(&self) -> usize {

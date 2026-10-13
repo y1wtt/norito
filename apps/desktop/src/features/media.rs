@@ -5,6 +5,7 @@ use crate::{
     services::{blocking, off_thread},
 };
 use iced::{Task, widget};
+use norito_editor_widget::Rendered;
 use norito_model::structure::Diagram;
 use norito_platform::Result;
 
@@ -31,7 +32,7 @@ impl App {
     pub(super) fn rendered(
         &mut self,
         diagram: Diagram,
-        result: std::result::Result<String, String>,
+        result: std::result::Result<norito_render::Rendering, String>,
     ) {
         self.features.rendering.remove(&diagram);
         let diagrams = &mut self.features.media.diagrams;
@@ -40,7 +41,10 @@ impl App {
         }
         diagrams.insert(
             diagram,
-            result.map(|svg| widget::svg::Handle::from_memory(svg.into_bytes())),
+            result.map(|rendering| Rendered {
+                handle: widget::svg::Handle::from_memory(rendering.svg.into_bytes()),
+                extent: rendering.extent,
+            }),
         );
     }
     /// Load every image the saved document links to that is not loaded yet.

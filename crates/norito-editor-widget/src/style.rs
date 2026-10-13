@@ -1,8 +1,8 @@
 //! Typography: per-line highlight spans for the displayed text, cached by input.
-use crate::{MarkdownEditor, Mode, tables::ROW_HEIGHT};
+use crate::{MarkdownEditor, Media, Mode, tables::ROW_HEIGHT};
 use iced::{Color, Font, Theme, advanced::text::highlighter::Format, font};
 use norito_iced_ext::styled_text::{Span, Styles};
-use norito_model::{projection::TextStyle, text::line_index};
+use norito_model::{projection::TextStyle, structure::Extent, text::line_index};
 use std::sync::Arc;
 
 pub(crate) const FONT: &str = "Yu Gothic UI";
@@ -14,8 +14,15 @@ const SMALL: f32 = 12.0;
 const DIAGRAM_LINE: f32 = 180.0;
 const IMAGE_LINE: f32 = 220.0;
 const RULE_LINE: f32 = 24.0;
+/// A display formula's line until its rendering arrives.
 const DISPLAY_MATH_LINE: f32 = 90.0;
-const INLINE_MATH_LINE: f32 = 27.0;
+const DISPLAY_MATH_MARGIN: f32 = 12.0;
+/// Formulas are set this much larger than their text, matching its x-height.
+const MATH_SCALE: f32 = 1.1;
+/// Pixels per em of a display formula.
+pub(crate) const DISPLAY_MATH_EM: f32 = BODY * MATH_SCALE;
+/// How far below the middle of its line the text baseline sits, in ems.
+const BASELINE_DROP: f32 = 0.41;
 
 fn heading_size(level: u8) -> f32 {
     match level {
@@ -23,6 +30,17 @@ fn heading_size(level: u8) -> f32 {
         2 => 20.0,
         3 => 17.0,
         _ => 16.0,
+    }
+}
+fn text_size(style: TextStyle) -> f32 {
+    if style.heading > 0 {
+        heading_size(style.heading)
+    } else if style.small {
+        SMALL
+    } else if style.code {
+        CODE
+    } else {
+        BODY
     }
 }
 fn heading_font() -> Font {
@@ -44,6 +62,12 @@ fn spacer(size: f32, line_height: f32, font: Option<Font>) -> Span {
         },
     )
 }
+/// The extent of the rendered formula at `source`.
+fn extent_at(formulas: &[(usize, Extent)], source: usize) -> Option<Extent> {
+    formulas
+        .iter()
+        .find_map(|(at, extent)| (*at == source).then_some(*extent))
+}
 
 /// The inputs a style computation depends on, and its result.
 pub(crate) struct Cache {
@@ -51,44 +75,48 @@ pub(crate) struct Cache {
     display: String,
     mode: Mode,
     palette: [Color; 3],
+    /// Rendered formula extents by source offset.
+    formulas: Vec<(usize, Extent)>,
     styles: Styles,
 }
 
 impl MarkdownEditor {
-    pub(crate) fn styles(&self, theme: &Theme) -> Styles {
+    pub(crate) fn styles(&self, theme: &Theme, media: &Media) -> Styles {
         let palette = [
             theme.palette().background,
             theme.palette().text,
             theme.palette().primary,
         ];
+        let formulas = self.formula_extents(media);
         if let Some(cache) = self.style_cache.borrow().as_ref()
             && cache.source == self.projection.source
             && cache.display == self.projection.text
             && cache.mode == self.mode
             && cache.palette == palette
+            && cache.formulas == formulas
         {
             return cache.styles.clone();
         }
-        let styles = self.compute_styles(theme);
+        let styles = self.compute_styles(theme, &formulas);
         *self.style_cache.borrow_mut() = Some(Cache {
             source: self.projection.source.clone(),
             display: self.projection.text.clone(),
             mode: self.mode,
             palette,
+            formulas,
             styles: styles.clone(),
         });
         styles
     }
+    fn formula_extents(&self, media: &Media) -> Vec<(usize, Extent)> {
+        self.structure()
+            .math
+            .iter()
+            .filter_map(|math| Some((math.range.start, media.rendered(&math.diagram())?.extent?)))
+            .collect()
+    }
     fn span_format(&self, style: TextStyle, source: usize, theme: &Theme) -> Format<Font> {
-        let size = if style.heading > 0 {
-            heading_size(style.heading)
-        } else if style.small {
-            SMALL
-        } else if style.code {
-            CODE
-        } else {
-            BODY
-        };
+        let size = text_size(style);
         let font = Font {
             family: if style.code {
                 font::Family::Monospace
@@ -141,7 +169,7 @@ impl MarkdownEditor {
             color: Some(color),
         }
     }
-    pub(crate) fn compute_styles(&self, theme: &Theme) -> Styles {
+    pub(crate) fn compute_styles(&self, theme: &Theme, formulas: &[(usize, Extent)]) -> Styles {
         let projection = self.shown();
         let mut lines: Vec<Vec<Span>> = vec![vec![]];
         let mut line_start = 0;
@@ -151,7 +179,16 @@ impl MarkdownEditor {
                 line_start = cell.display.end;
                 continue;
             }
-            let format = self.span_format(cell.style, cell.source.start, theme);
+            let mut format = self.span_format(cell.style, cell.source.start, theme);
+            // An inline formula's placeholder spaces are one em wide: size them to its width.
+            if cell.style.math
+                && !cell.style.diagram
+                && let Some(extent) = extent_at(formulas, cell.source.start)
+            {
+                let spaces = projection.text[cell.display.clone()].chars().count() as f32;
+                let width = extent.width * text_size(cell.style) * MATH_SCALE;
+                format.size = Some((width / spaces).into());
+            }
             let range = cell.display.start - line_start..cell.display.end - line_start;
             let line = lines.last_mut().unwrap();
             if let Some((last, old_format)) = line.last_mut()
@@ -191,12 +228,12 @@ impl MarkdownEditor {
             }
         }
         if self.mode == Mode::Rich {
-            self.reserve_block_lines(&mut lines);
+            self.reserve_block_lines(&mut lines, formulas);
         }
         Styles(Arc::new(lines))
     }
     /// Collapsed blocks occupy one line, tall enough for what is drawn over it.
-    fn reserve_block_lines(&self, lines: &mut [Vec<Span>]) {
+    fn reserve_block_lines(&self, lines: &mut [Vec<Span>], formulas: &[(usize, Extent)]) {
         for (line, _, _) in self.diagram_slots() {
             if let Some(spans) = lines.get_mut(line) {
                 *spans = vec![spacer(BODY, DIAGRAM_LINE, None)];
@@ -205,6 +242,7 @@ impl MarkdownEditor {
         let structure = self.structure();
         for cell in &self.projection.cells {
             let style = cell.style;
+            let extent = extent_at(formulas, cell.source.start);
             let height = if style.table {
                 structure
                     .tables
@@ -218,16 +256,25 @@ impl MarkdownEditor {
             } else if style.rule {
                 RULE_LINE
             } else if style.math && style.diagram {
-                DISPLAY_MATH_LINE
+                extent.map_or(DISPLAY_MATH_LINE, |e| {
+                    (e.height + e.depth) * DISPLAY_MATH_EM + 2.0 * DISPLAY_MATH_MARGIN
+                })
             } else if style.math {
-                INLINE_MATH_LINE
+                // Tall enough to hold the formula on the text baseline.
+                let Some(extent) = extent else { continue };
+                let size = text_size(style);
+                let drop = BASELINE_DROP * size;
+                let em = size * MATH_SCALE;
+                2.0 * (extent.height * em - drop).max(extent.depth * em + drop)
             } else {
                 continue;
             };
             let line = line_index(&self.projection.text, cell.display.start);
             if style.math && !style.diagram {
                 for (_, format) in &mut lines[line] {
-                    format.line_height = Some(height.into());
+                    if format.line_height.is_none_or(|current| current.0 < height) {
+                        format.line_height = Some(height.into());
+                    }
                 }
             } else {
                 lines[line] = vec![spacer(BODY, height, None)];
@@ -244,44 +291,98 @@ mod tests {
     fn style_cache_reuses_spans_and_invalidates_for_theme_mode_and_edits() {
         let mut document = Document::from_bytes(b"# Heading\n\n**bold**\n").unwrap();
         let mut editor = MarkdownEditor::new(&document);
-        let first = editor.styles(&Theme::Dark);
-        assert!(Arc::ptr_eq(&first.0, &editor.styles(&Theme::Dark).0));
-        assert!(!Arc::ptr_eq(&first.0, &editor.styles(&Theme::Light).0));
+        let first = editor.styles(&Theme::Dark, &Media::default());
+        assert!(Arc::ptr_eq(
+            &first.0,
+            &editor.styles(&Theme::Dark, &Media::default()).0
+        ));
+        assert!(!Arc::ptr_eq(
+            &first.0,
+            &editor.styles(&Theme::Light, &Media::default()).0
+        ));
         editor.set_mode(Mode::Source);
         assert_eq!(
-            editor.styles(&Theme::Dark),
-            editor.compute_styles(&Theme::Dark)
+            editor.styles(&Theme::Dark, &Media::default()),
+            editor.compute_styles(&Theme::Dark, &[])
         );
         document = Document::from_bytes(b"## Changed\n").unwrap();
         editor.synchronize(&document, true);
         assert_eq!(
-            editor.styles(&Theme::Dark),
-            editor.compute_styles(&Theme::Dark)
+            editor.styles(&Theme::Dark, &Media::default()),
+            editor.compute_styles(&Theme::Dark, &[])
         );
-        assert!(!Arc::ptr_eq(&first.0, &editor.styles(&Theme::Dark).0));
+        assert!(!Arc::ptr_eq(
+            &first.0,
+            &editor.styles(&Theme::Dark, &Media::default()).0
+        ));
+    }
+    #[test]
+    fn rendered_formulas_size_their_placeholders_and_lines() {
+        let document = Document::from_bytes(b"text $x^2$ more\n\n$$\ny\n$$\n").unwrap();
+        let editor = MarkdownEditor::new(&document);
+        let pending = editor.styles(&Theme::Dark, &Media::default());
+        let rendered = |height| {
+            Ok(crate::Rendered {
+                handle: iced::widget::svg::Handle::from_memory(Vec::new()),
+                extent: Some(Extent {
+                    width: 2.0,
+                    height,
+                    depth: 0.5,
+                }),
+            })
+        };
+        let math = &editor.structure().math;
+        let mut media = Media::default();
+        media.diagrams.insert(math[0].diagram(), rendered(1.5));
+        media.diagrams.insert(math[1].diagram(), rendered(1.0));
+        let styles = editor.styles(&Theme::Dark, &media);
+        assert!(!Arc::ptr_eq(&pending.0, &styles.0));
+        // Three one-em spaces span two ems of the formula, set at 1.1 times the text.
+        let sizes: Vec<_> = styles.0[0].iter().map(|(_, f)| f.size.unwrap().0).collect();
+        assert_eq!(sizes.len(), 3);
+        assert!((sizes[1] - 2.0 * BODY * MATH_SCALE / 3.0).abs() < 1e-3);
+        assert_eq!([sizes[0], sizes[2]], [BODY, BODY]);
+        for (_, format) in &styles.0[0] {
+            assert!(format.line_height.unwrap().0 > BODY_LINE);
+        }
+        let display = styles.0.iter().find_map(|line| {
+            (line.len() == 1 && line[0].1.line_height.unwrap().0 > BODY_LINE)
+                .then(|| line[0].1.line_height.unwrap().0)
+        });
+        assert_eq!(
+            display,
+            Some(1.5 * DISPLAY_MATH_EM + 2.0 * DISPLAY_MATH_MARGIN)
+        );
     }
     #[test]
     fn source_heading_metrics_are_shared() {
         let doc = Document::new("# Heading".into());
         let mut editor = MarkdownEditor::new(&doc);
-        let rich_size = editor.styles(&Theme::Dark).0[0][0].1.size;
+        let rich_size = editor.styles(&Theme::Dark, &Media::default()).0[0][0]
+            .1
+            .size;
         editor.set_mode(Mode::Source);
-        assert_eq!(editor.styles(&Theme::Dark).0[0][0].1.size, rich_size);
+        assert_eq!(
+            editor.styles(&Theme::Dark, &Media::default()).0[0][0]
+                .1
+                .size,
+            rich_size
+        );
     }
     #[test]
     #[ignore = "manual redraw timing"]
     fn measure_cached_styles() {
         let source = "# Heading\n\nText **bold** and *italic*.\n\n".repeat(250);
         let editor = MarkdownEditor::new(&Document::from_bytes(source.as_bytes()).unwrap());
-        editor.styles(&Theme::Dark);
+        editor.styles(&Theme::Dark, &Media::default());
         let start = std::time::Instant::now();
         for _ in 0..100 {
-            std::hint::black_box(editor.compute_styles(&Theme::Dark));
+            std::hint::black_box(editor.compute_styles(&Theme::Dark, &[]));
         }
         let uncached = start.elapsed();
         let start = std::time::Instant::now();
         for _ in 0..100 {
-            std::hint::black_box(editor.styles(&Theme::Dark));
+            std::hint::black_box(editor.styles(&Theme::Dark, &Media::default()));
         }
         eprintln!(
             "100 style passes, {} bytes: uncached {:?}, cached {:?}",

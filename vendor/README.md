@@ -20,7 +20,7 @@ Highlighting formats all remaining lines instead of estimating visible lines fro
 
 Dependencies are patched at the workspace root. No upstream proposal has been submitted. Validate rich heading hit testing, selection across sizes, wrapping, scrolling, dropdown width and IME when upgrading. `norito-iced-ext` tests exercise layout coordinates and pointer hit testing without launching the application.
 
-`Editor::span_bounds` / `Content::span_bounds` expose glyph ranges for inline decorations. TextEditor accepts logical-line and span backgrounds, clipped to the text viewport and drawn before glyphs. The consuming widget supplies syntax colors; the vendor layer does not parse code or Markdown. Code backgrounds must stay in the text layer: introducing a later renderer layer can cover glyphs.
+`Editor::span_bounds` / `Content::span_bounds` expose glyph ranges for inline decorations, and `span_baseline` the baseline of the run holding them, so inline SVGs can sit on the text baseline. TextEditor accepts logical-line and span backgrounds, clipped to the text viewport and drawn before glyphs. The consuming widget supplies syntax colors; the vendor layer does not parse code or Markdown. Code backgrounds must stay in the text layer: introducing a later renderer layer can cover glyphs.
 
 TextInput ignores empty IME Commit events, matching TextEditor's cancellation handling. This prevents cancelling composition from deleting a selected table-cell value. The viewport-anchored input container is in `norito-iced-ext::inline_editor`, not in the vendor patch.
 

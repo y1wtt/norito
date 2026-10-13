@@ -21,7 +21,7 @@ fn measure_continuous_input() {
                 .unwrap();
             doc.edit(edited);
             editor.synchronize(&doc, false);
-            std::hint::black_box(editor.styles(&Theme::Dark));
+            std::hint::black_box(editor.styles(&Theme::Dark, &Media::default()));
             if rebuild {
                 let caret = editor.content.cursor();
                 editor.content = text_editor::Content::with_text(editor.displayed());
@@ -202,7 +202,7 @@ fn empty_heading_composition_matches_committed_layout_at_every_level() {
         let document = Document::new(source.into());
         let widget = MarkdownEditor::new(&document);
         let mut editor = Editor::with_text(&widget.projection.text);
-        let mut highlighter = StyledText::new(&widget.styles(&Theme::Dark));
+        let mut highlighter = StyledText::new(&widget.styles(&Theme::Dark, &Media::default()));
         editor.update(
             iced::Size::new(720.0, 500.0),
             Font::with_name("Yu Gothic UI"),
