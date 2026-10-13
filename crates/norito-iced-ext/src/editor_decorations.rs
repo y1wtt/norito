@@ -61,7 +61,7 @@ impl Painter {
     ) {
         let label = self.label(content, 12.0, Some(bounds.width));
         if let Some(clip) = bounds.intersection(&clip) {
-            ink::fill(renderer, &label, bounds.position(), color, clip);
+            ink::fill(renderer, [(&label, bounds.position())], color, clip);
         }
     }
 }
@@ -182,10 +182,11 @@ impl<Message: Clone> Decorated<'_, Message> {
             self.bounds(decoration.line(), layout)
         }
     }
+    /// The line within the text column, so blocks start where text does.
     fn bounds(&self, line: usize, layout: Layout<'_>) -> Option<Rectangle> {
         self.content.line_bounds(line).map(|r| {
             r + iced::Vector::new(
-                layout.bounds().x,
+                layout.bounds().x + crate::EDITOR_PADDING.left,
                 layout.bounds().y + crate::EDITOR_PADDING.top,
             )
         })
@@ -470,8 +471,7 @@ impl<Message: Clone> Widget<Message, Theme, Renderer> for Decorated<'_, Message>
                                 if let Some(cell_clip) = cell.intersection(&clip) {
                                     ink::fill(
                                         renderer,
-                                        &label,
-                                        Point::new(x, inner.y),
+                                        [(&label, Point::new(x, inner.y))],
                                         theme.palette().text,
                                         cell_clip,
                                     );
@@ -507,6 +507,8 @@ impl<Message: Clone> Widget<Message, Theme, Renderer> for Decorated<'_, Message>
                         );
                     }
                     Decoration::Rule { color, .. } => {
+                        // In the left padding, beside the text it marks.
+                        bounds.x = layout.bounds().x;
                         bounds.width = 3.0;
                         renderer.fill_quad(
                             renderer::Quad {
@@ -521,7 +523,7 @@ impl<Message: Clone> Widget<Message, Theme, Renderer> for Decorated<'_, Message>
                         size,
                         ..
                     } => {
-                        bounds = bounds.shrink(8.0);
+                        bounds = bounds.shrink([8.0, 0.0]);
                         let mut image = svg::Svg::new(handle.clone());
                         let size = if let Some(size) = size {
                             image = image.color(theme.palette().text);
@@ -554,7 +556,7 @@ impl<Message: Clone> Widget<Message, Theme, Renderer> for Decorated<'_, Message>
                     Decoration::Diagram { status, .. } => {
                         painter.note(
                             renderer,
-                            bounds.shrink(12.0),
+                            bounds.shrink([12.0, 0.0]),
                             clip,
                             theme.palette().text,
                             status,

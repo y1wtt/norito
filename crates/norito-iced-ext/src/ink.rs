@@ -9,24 +9,25 @@ use std::sync::Arc;
 /// overflowing labels paint outside any tighter size.
 pub(crate) const UNBOUNDED: f32 = 1.0e6;
 
-/// Paint `buffer` at `position`, inside `clip` only. The caller keeps the
-/// buffer alive until the frame is presented: renderers hold a weak reference.
-pub(crate) fn fill<R>(
+/// Paint each buffer at its position, inside `clip` only. The caller keeps the
+/// buffers alive until the frame is presented: renderers hold weak references.
+pub(crate) fn fill<'a, R>(
     renderer: &mut R,
-    buffer: &Arc<cosmic_text::Buffer>,
-    position: Point,
+    buffers: impl IntoIterator<Item = (&'a Arc<cosmic_text::Buffer>, Point)>,
     color: Color,
     clip: Rectangle,
 ) where
     R: iced::advanced::Renderer + text::Renderer,
 {
     renderer.with_layer(clip, |renderer| {
-        renderer.fill_raw(Raw {
-            buffer: Arc::downgrade(buffer),
-            position,
-            color,
-            clip_bounds: clip,
-        });
+        for (buffer, position) in buffers {
+            renderer.fill_raw(Raw {
+                buffer: Arc::downgrade(buffer),
+                position,
+                color,
+                clip_bounds: clip,
+            });
+        }
     });
 }
 
@@ -118,8 +119,7 @@ mod tests {
                 let clip = cell.intersection(&viewport).unwrap();
                 fill(
                     &mut renderer,
-                    label,
-                    Point::new(x, inner.y),
+                    [(label, Point::new(x, inner.y))],
                     Color::BLACK,
                     clip,
                 );

@@ -148,9 +148,10 @@ impl MarkdownEditor {
         let mut bounds = self
             .content
             .line_bounds(self.table_line(edit.range.start)?)?;
+        let padding = norito_iced_ext::EDITOR_PADDING;
         bounds.width /= edit.columns() as f32;
-        bounds.x += bounds.width * edit.col as f32;
-        bounds.y += ROW_HEIGHT * edit.row as f32 + norito_iced_ext::EDITOR_PADDING.top;
+        bounds.x += bounds.width * edit.col as f32 + padding.left;
+        bounds.y += ROW_HEIGHT * edit.row as f32 + padding.top;
         bounds.height = ROW_HEIGHT;
         Some((bounds, edit.can_remove_row(), edit.can_remove_column()))
     }

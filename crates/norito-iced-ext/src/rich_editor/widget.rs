@@ -86,7 +86,8 @@ impl<'a, Message> RichEditor<'a, Message> {
         self.styles = styles;
         self
     }
-    /// Full-width backgrounds behind contiguous logical line ranges, with vertical padding.
+    /// Backgrounds across the text column behind contiguous logical line
+    /// ranges, with vertical padding.
     pub fn block_backgrounds(mut self, backgrounds: Vec<(Range<usize>, Color, f32)>) -> Self {
         self.block_backgrounds = backgrounds;
         self
@@ -414,10 +415,11 @@ where
             else {
                 continue;
             };
+            // Spans the text column; inset lines keep their text inside it.
             let rect = Rectangle {
-                x: bounds.x,
+                x: rect.x + translation.x,
                 y: rect.y + translation.y - padding,
-                width: bounds.width,
+                width: rect.width,
                 height: rect.height + padding * 2.0,
             };
             if let Some(rect) = rect.intersection(&bounds) {
@@ -469,9 +471,15 @@ where
         let Some(clip) = text_bounds.intersection(viewport) else {
             return;
         };
-        let frame = Arc::new(editor.snapshot());
-        ink::fill(renderer, &frame, text_bounds.position(), style.value, clip);
-        internal.frame = Some(frame);
+        let frame: Vec<_> = editor
+            .snapshot()
+            .into_iter()
+            .map(|(inset, buffer)| (inset, Arc::new(buffer)))
+            .collect();
+        let at = |inset: f32| text_bounds.position() + Vector::new(inset, 0.0);
+        let buffers = frame.iter().map(|(inset, buffer)| (buffer, at(*inset)));
+        ink::fill(renderer, buffers, style.value, clip);
+        internal.frame = frame.into_iter().map(|(_, buffer)| buffer).collect();
     }
     fn mouse_interaction(
         &self,

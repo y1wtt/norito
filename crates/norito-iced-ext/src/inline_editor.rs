@@ -60,6 +60,7 @@ impl<M: Clone> Widget<M, Theme, Renderer> for Inline<'_, M> {
             &layout::Limits::new(Size::ZERO, Size::new(rect.width, 10000.0)),
         );
         let mut position = rect.position();
+        position.x += crate::EDITOR_PADDING.left;
         position.y += crate::EDITOR_PADDING.top;
         if self.clicks.is_empty() {
             position.y = position
@@ -205,5 +206,29 @@ impl<M: Clone> Widget<M, Theme, Renderer> for Inline<'_, M> {
                 )
             });
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use iced::Font;
+    #[test]
+    fn child_starts_where_the_text_does() {
+        let content = Content::with_text("Text\n ");
+        let editor = crate::rich_editor::rich_editor::<()>(&content)
+            .padding(crate::EDITOR_PADDING)
+            .height(400);
+        let child = iced::widget::Space::new().width(100).height(34);
+        let mut element = inline(editor.into(), &content, 1, child.into(), vec![]);
+        let mut tree = Tree::new(&element);
+        let renderer = Renderer::new(Font::DEFAULT, 15.0.into());
+        let node = element.as_widget_mut().layout(
+            &mut tree,
+            &renderer,
+            &layout::Limits::new(Size::ZERO, Size::new(500.0, 400.0)),
+        );
+        let text = content.span_bounds(0, 0..1)[0].x + crate::EDITOR_PADDING.left;
+        assert!((node.children()[1].bounds().x - text).abs() < 1.0);
     }
 }

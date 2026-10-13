@@ -27,7 +27,7 @@ struct Internal {
     /// The text with the IME composition inserted, and what it was built from.
     preedit: Option<(Composition, Editor)>,
     /// What was last drawn. Renderers reference it weakly until it is presented.
-    frame: Option<Arc<cosmic_text::Buffer>>,
+    frame: Vec<Arc<cosmic_text::Buffer>>,
 }
 
 #[derive(Clone, PartialEq)]
@@ -41,7 +41,7 @@ impl Content {
         Self(RefCell::new(Internal {
             editor: Editor::with_text(text),
             preedit: None,
-            frame: None,
+            frame: vec![],
         }))
     }
     pub fn perform(&mut self, action: Action) {

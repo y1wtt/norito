@@ -386,3 +386,70 @@ fn ime_cancel_keeps_selection_while_commit_replaces_it() {
     let pasted = send(commit("あ"));
     assert!(matches!(&pasted[..], [Action::Edit(Edit::Paste(text))] if text.as_str() == "あ"));
 }
+
+#[test]
+fn inset_lines_wrap_hit_and_draw_inside_their_inset() {
+    const INSET: f32 = 12.0;
+    let long = "x".repeat(60);
+    let mut editor = Editor::with_text(&format!("x\n{long}"));
+    let inset = Format {
+        inset: Some(INSET.into()),
+        ..Default::default()
+    };
+    let bounds = Rectangle::new(Point::ORIGIN, Size::new(200.0, 200.0));
+    editor.update(
+        bounds.size(),
+        Font::MONOSPACE,
+        14.0.into(),
+        LineHeight::Relative(1.5),
+        Wrapping::WordOrGlyph,
+        &styles(vec![vec![], vec![(0..long.len(), inset)]]),
+    );
+    assert!(editor.span_bounds(0, 0..1)[0].x < 1.0, "others stay put");
+    let runs = editor.span_bounds(1, 0..long.len());
+    assert!(runs.len() > 1, "the long line must wrap");
+    for run in &runs {
+        assert!(run.x >= INSET && run.x + run.width <= bounds.width - INSET);
+    }
+    editor.perform(Action::Click(Point::new(runs[0].x + 1.0, runs[0].y + 1.0)));
+    assert_eq!(editor.cursor().position, Position { line: 1, column: 0 });
+    assert_eq!(editor.caret_bounds().unwrap().x, INSET);
+    assert!(matches!(editor.selection(), Selection::Caret(p) if p.x == INSET));
+    editor.perform(Action::Select(iced::advanced::text::editor::Motion::Right));
+    let Selection::Range(selected) = editor.selection() else {
+        panic!("selection expected");
+    };
+    assert_eq!(selected[0].x, runs[0].x);
+    let frame: Vec<_> = editor
+        .snapshot()
+        .into_iter()
+        .map(|(inset, buffer)| (Point::new(inset, 0.0), Arc::new(buffer)))
+        .collect();
+    let mut renderer = iced_tiny_skia::Renderer::new(Font::MONOSPACE, 14.0.into());
+    let buffers = frame.iter().map(|(at, buffer)| (buffer, *at));
+    crate::ink::fill(&mut renderer, buffers, iced::Color::BLACK, bounds);
+    let mut pixmap = tiny_skia::Pixmap::new(200, 200).unwrap();
+    pixmap.fill(tiny_skia::Color::WHITE);
+    let mut mask = tiny_skia::Mask::new(200, 200).unwrap();
+    renderer.draw(
+        &mut pixmap.as_mut(),
+        &mut mask,
+        &iced::advanced::graphics::Viewport::with_physical_size(Size::new(200, 200), 1.0),
+        &[bounds],
+        iced::Color::WHITE,
+    );
+    let ink = |x: Range<u32>, y: Range<u32>| {
+        y.flat_map(|y| x.clone().map(move |x| (x, y)))
+            .any(|(x, y)| pixmap.pixel(x, y).unwrap().red() != 255)
+    };
+    let rows = runs[0].y as u32..(runs.last().unwrap().y + runs[0].height) as u32;
+    assert!(
+        ink(0..INSET as u32, 0..rows.start),
+        "first line starts at 0"
+    );
+    assert!(
+        !ink(0..INSET as u32, rows.clone()),
+        "inset line ink at the left"
+    );
+    assert!(ink(INSET as u32..200, rows), "inset line must draw");
+}

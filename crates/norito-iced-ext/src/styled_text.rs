@@ -10,6 +10,9 @@ pub struct Format {
     pub size: Option<Pixels>,
     /// Defaults to the editor's line-height ratio at `size`.
     pub line_height: Option<Pixels>,
+    /// Inset of the whole line from both sides of the text area, for text
+    /// inside a box. The largest inset on a line applies.
+    pub inset: Option<Pixels>,
 }
 
 /// UTF-8 byte range within a line. An empty range at the start of a line

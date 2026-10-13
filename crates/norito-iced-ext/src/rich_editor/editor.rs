@@ -86,7 +86,8 @@ impl Editor {
             Some((start, end)) => Selection::Range(highlights(self.buffer(), start, end)),
             None => {
                 let (x, y) = self.editor.cursor_position().unwrap_or((-100, -100));
-                Selection::Caret(Point::new(x as f32, y as f32))
+                let inset = line_inset(self.buffer(), self.editor.cursor().line);
+                Selection::Caret(Point::new(x as f32 + inset, y as f32))
             }
         }
     }
@@ -103,8 +104,9 @@ impl Editor {
     /// The caret, including when a selection is present.
     pub fn caret_bounds(&self) -> Option<Rectangle> {
         let (x, y) = self.editor.cursor_position()?;
+        let x = x as f32 + line_inset(self.buffer(), self.editor.cursor().line);
         Some(Rectangle::new(
-            Point::new(x as f32, y as f32),
+            Point::new(x, y as f32),
             Size::new(1.0, self.caret_height()?),
         ))
     }
@@ -127,6 +129,7 @@ impl Editor {
 
     /// Visible glyph bounds of a UTF-8 range on one logical line, one per run.
     pub fn span_bounds(&self, line: usize, range: Range<usize>) -> Vec<Rectangle> {
+        let inset = line_inset(self.buffer(), line);
         self.buffer()
             .layout_runs()
             .filter(|run| run.line_i == line)
@@ -140,7 +143,7 @@ impl Editor {
                     });
                 (right > left).then(|| {
                     Rectangle::new(
-                        Point::new(left, run.line_top),
+                        Point::new(left + inset, run.line_top),
                         Size::new(right - left, run.line_height),
                     )
                 })
@@ -189,6 +192,11 @@ impl Editor {
         }
         editor.insert_string(content, None);
         let end = editor.cursor();
+        // Editing resets line metadata; the composed lines keep the line's inset.
+        let kept = line_inset(self.buffer(), start.line);
+        for line in &mut buffer_mut(&mut editor).lines[start.line..=end.line] {
+            line.set_metadata(kept.to_bits() as usize);
+        }
         if let Some(range) = selection {
             let position = |offset: usize| {
                 let mut offset = offset.min(content.len());
@@ -215,6 +223,7 @@ impl Editor {
         }
         let mut font_system = text::font_system().write().expect("Write font system");
         editor.shape_as_needed(font_system.raw(), true);
+        wrap_insets(buffer_mut(&mut editor), font_system.raw());
         Self {
             editor,
             font: self.font,
@@ -266,6 +275,7 @@ impl Editor {
         let mut font_system = text::font_system().write().expect("Write font system");
         let font_system = font_system.raw();
         let editor = &mut self.editor;
+        let mut changed = None;
         match action {
             Action::Move(motion) => {
                 if let Some((start, end)) = editor.selection_bounds() {
@@ -339,21 +349,24 @@ impl Editor {
                     Edit::Backspace => editor.action(font_system, cosmic_text::Action::Backspace),
                     Edit::Delete => editor.action(font_system, cosmic_text::Action::Delete),
                 }
-                let changed = topmost(editor).min(before);
-                self.restyle(changed);
+                changed = Some(topmost(editor).min(before));
             }
-            Action::Click(position) => editor.action(
-                font_system,
-                cosmic_text::Action::Click {
-                    x: position.x as i32,
-                    y: position.y as i32,
-                },
-            ),
+            Action::Click(position) => {
+                let x = position.x - inset_at(buffer(editor), position.y);
+                editor.action(
+                    font_system,
+                    cosmic_text::Action::Click {
+                        x: x as i32,
+                        y: position.y as i32,
+                    },
+                );
+            }
             Action::Drag(position) => {
+                let x = position.x - inset_at(buffer(editor), position.y);
                 editor.action(
                     font_system,
                     cosmic_text::Action::Drag {
-                        x: position.x as i32,
+                        x: x as i32,
                         y: position.y as i32,
                     },
                 );
@@ -363,6 +376,10 @@ impl Editor {
                 let pixels = lines as f32 * buffer(editor).metrics().line_height;
                 editor.action(font_system, cosmic_text::Action::Scroll { pixels });
             }
+        }
+        wrap_insets(buffer_mut(editor), font_system);
+        if let Some(line) = changed {
+            self.restyle(line);
         }
     }
 
@@ -383,6 +400,7 @@ impl Editor {
         );
         let mut font_system = text::font_system().write().expect("Write font system");
         self.editor.shape_as_needed(font_system.raw(), true);
+        wrap_insets(buffer_mut(&mut self.editor), font_system.raw());
     }
 
     pub fn bounds(&self) -> Size {
@@ -445,33 +463,50 @@ impl Editor {
             self.bounds = bounds;
         }
         self.editor.shape_as_needed(font_system, false);
+        wrap_insets(buffer_mut(&mut self.editor), font_system);
     }
 
-    /// The laid-out lines in view, detached for one frame of drawing.
-    pub fn snapshot(&self) -> cosmic_text::Buffer {
+    /// The laid-out lines in view, detached for one frame of drawing. Lines
+    /// sharing an inset form one buffer, drawn shifted right by that inset.
+    pub fn snapshot(&self) -> Vec<(f32, cosmic_text::Buffer)> {
         let buffer = self.buffer();
+        let metrics = buffer.metrics();
         let scroll = buffer.scroll();
         let end = buffer
             .layout_runs()
             .last()
             .map_or(scroll.line, |run| run.line_i)
             + 1;
-        let mut snapshot = cosmic_text::Buffer::new_empty(buffer.metrics());
-        {
-            let mut font_system = text::font_system().write().expect("Write font system");
+        let lines = buffer
+            .lines
+            .get(scroll.line..end.min(buffer.lines.len()))
+            .unwrap_or_default();
+        let mut font_system = text::font_system().write().expect("Write font system");
+        let mut snapshots = vec![];
+        let mut height = 0.0;
+        for group in lines.chunk_by(|a, b| inset(a) == inset(b)) {
+            let mut snapshot = cosmic_text::Buffer::new_empty(metrics);
             snapshot.set_size(
                 font_system.raw(),
                 Some(ink::UNBOUNDED),
                 Some(ink::UNBOUNDED),
             );
+            snapshot.lines = group.to_vec();
+            // Later groups start below the earlier ones, as in the full layout.
+            snapshot.set_scroll(cosmic_text::Scroll {
+                line: 0,
+                vertical: scroll.vertical - height,
+                ..scroll
+            });
+            height += group
+                .iter()
+                .filter_map(|line| line.layout_opt())
+                .flatten()
+                .map(|layout| layout.line_height_opt.unwrap_or(metrics.line_height))
+                .sum::<f32>();
+            snapshots.push((inset(&group[0]), snapshot));
         }
-        snapshot.lines = buffer
-            .lines
-            .get(scroll.line..end.min(buffer.lines.len()))
-            .unwrap_or_default()
-            .to_vec();
-        snapshot.set_scroll(cosmic_text::Scroll { line: 0, ..scroll });
-        snapshot
+        snapshots
     }
 
     fn restyle(&mut self, line: usize) {
@@ -506,8 +541,16 @@ impl Editor {
             for (range, format) in spans {
                 list.add_span(range.clone(), &attrs(format));
             }
-            // Unchanged lines keep their shaping.
-            let _ = line.set_attrs_list(list);
+            let line_inset = spans
+                .iter()
+                .filter_map(|(_, format)| format.inset)
+                .fold(0.0, |max, inset| inset.0.max(max));
+            // Unchanged lines keep their shaping. Metadata carries the inset
+            // to layout, hit testing and drawing; changed attributes clear it.
+            if line.set_attrs_list(list) || line_inset != inset(line) {
+                line.set_metadata(line_inset.to_bits() as usize);
+                line.reset_layout();
+            }
         }
     }
 }
@@ -529,13 +572,54 @@ fn highlights(
         .filter_map(|run| {
             let (x, width) = run.highlight(start, end)?;
             (width > 0.0).then_some(Rectangle {
-                x,
+                x: x + line_inset(buffer, run.line_i),
                 y: run.line_top,
                 width,
                 height: run.line_height,
             })
         })
         .collect()
+}
+
+/// The inset a span gave this line ([`Format::inset`]). Layout coordinates
+/// exclude it: geometry adds it, pointer positions drop it, drawing shifts by it.
+fn inset(line: &cosmic_text::BufferLine) -> f32 {
+    line.metadata()
+        .map_or(0.0, |bits| f32::from_bits(bits as u32))
+}
+
+fn line_inset(buffer: &cosmic_text::Buffer, line: usize) -> f32 {
+    buffer.lines.get(line).map_or(0.0, inset)
+}
+
+/// Inset of the visual line at `y`, for hit testing.
+fn inset_at(buffer: &cosmic_text::Buffer, y: f32) -> f32 {
+    buffer
+        .layout_runs()
+        .find(|run| y < run.line_top + run.line_height)
+        .map_or(0.0, |run| line_inset(buffer, run.line_i))
+}
+
+/// Wrap inset lines within the text width less both insets. cosmic-text lays
+/// out every line at the buffer width; a line that already fits the narrower
+/// width has the same layout either way, so only overflowing lines are redone.
+fn wrap_insets(buffer: &mut cosmic_text::Buffer, font_system: &mut cosmic_text::FontSystem) {
+    let Some(width) = buffer.size().0 else {
+        return;
+    };
+    let font_size = buffer.metrics().font_size;
+    let (wrap, monospace, tab) = (buffer.wrap(), buffer.monospace_width(), buffer.tab_width());
+    for line in &mut buffer.lines {
+        let narrow = (width - 2.0 * inset(line)).max(0.0);
+        if inset(line) > 0.0
+            && line
+                .layout_opt()
+                .is_some_and(|layout| layout.iter().any(|visual| visual.w > narrow))
+        {
+            line.reset_layout();
+            let _ = line.layout(font_system, font_size, Some(narrow), wrap, monospace, tab);
+        }
+    }
 }
 
 fn deselect_if_empty(editor: &mut cosmic_text::Editor<'static>) {
