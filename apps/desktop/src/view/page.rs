@@ -37,9 +37,7 @@ impl App {
                     &self.features.media,
                 )
                 .map(Message::Editor);
-            let base: Element<'_, Message> = mouse_area(editor)
-                .on_right_press_at(Message::ContextAt)
-                .into();
+            let base = norito_iced_ext::events::on_right_press_at(editor, Message::ContextAt);
             match self.context {
                 Some(point) => self.context_menu(base, size, point),
                 None => self.toolbars(base, size),

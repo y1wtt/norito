@@ -1,9 +1,9 @@
 //! An interactive child anchored to a logical editor line, within its viewport.
+use crate::rich_editor::Content;
 use iced::advanced::{
     Clipboard, Layout, Shell, Widget, layout, mouse, renderer,
     widget::{Operation, Tree},
 };
-use iced::widget::text_editor::Content;
 use iced::{Element, Event, Length, Rectangle, Renderer, Size, Theme};
 
 pub fn inline<'a, M: Clone + 'a>(
@@ -212,11 +212,11 @@ impl<M: Clone> Widget<M, Theme, Renderer> for Inline<'_, M> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use iced::{Font, widget::text_editor};
+    use iced::Font;
     #[test]
     fn child_starts_where_the_text_does() {
         let content = Content::with_text("Text\n ");
-        let editor = text_editor::<(), Theme, Renderer>(&content)
+        let editor = crate::rich_editor::rich_editor::<()>(&content)
             .padding(crate::EDITOR_PADDING)
             .height(400);
         let child = iced::widget::Space::new().width(100).height(34);

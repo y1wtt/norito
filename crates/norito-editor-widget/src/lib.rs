@@ -28,6 +28,7 @@ mod tests;
 mod view;
 
 use iced::widget::{image, svg, text_editor};
+use norito_iced_ext::rich_editor;
 use norito_model::{
     Document,
     projection::Projection,
@@ -90,7 +91,7 @@ impl Media {
 }
 
 pub struct MarkdownEditor {
-    content: text_editor::Content,
+    content: rich_editor::Content,
     projection: Projection,
     revision: u64,
     mode: Mode,
@@ -113,7 +114,7 @@ impl MarkdownEditor {
         let mut syntax_cache = syntax::Cache::default();
         let code_colors = syntax_cache.colors(&document.source);
         Self {
-            content: text_editor::Content::with_text(&projection.text),
+            content: rich_editor::Content::with_text(&projection.text),
             projection,
             revision: document.revision,
             mode: Mode::Rich,
