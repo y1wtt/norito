@@ -129,10 +129,11 @@ impl<Message: Clone> Decorated<'_, Message> {
             self.bounds(decoration.line(), layout)
         }
     }
+    /// The line within the text column, so blocks start where text does.
     fn bounds(&self, line: usize, layout: Layout<'_>) -> Option<Rectangle> {
         self.content.line_bounds(line).map(|r| {
             r + iced::Vector::new(
-                layout.bounds().x,
+                layout.bounds().x + crate::EDITOR_PADDING.left,
                 layout.bounds().y + crate::EDITOR_PADDING.top,
             )
         })
@@ -414,6 +415,8 @@ impl<Message: Clone> Widget<Message, Theme, Renderer> for Decorated<'_, Message>
                         );
                     }
                     Decoration::Rule { color, .. } => {
+                        // In the left padding, beside the text it marks.
+                        bounds.x = layout.bounds().x;
                         bounds.width = 3.0;
                         renderer.fill_quad(
                             renderer::Quad {
@@ -427,7 +430,7 @@ impl<Message: Clone> Widget<Message, Theme, Renderer> for Decorated<'_, Message>
                         handle: Some(handle),
                         ..
                     } => {
-                        bounds = bounds.shrink(8.0);
+                        bounds = bounds.shrink([8.0, 0.0]);
                         renderer.fill_quad(
                             renderer::Quad {
                                 bounds,
@@ -453,7 +456,7 @@ impl<Message: Clone> Widget<Message, Theme, Renderer> for Decorated<'_, Message>
                         renderer.fill_text(
                             text::Text {
                                 content: status.clone(),
-                                bounds: bounds.shrink(12.0).size(),
+                                bounds: bounds.shrink([12.0, 0.0]).size(),
                                 size: 12.0.into(),
                                 line_height: text::LineHeight::Relative(1.5),
                                 font: iced::Font::with_name("Yu Gothic UI"),
@@ -462,7 +465,7 @@ impl<Message: Clone> Widget<Message, Theme, Renderer> for Decorated<'_, Message>
                                 shaping: text::Shaping::Advanced,
                                 wrapping: text::Wrapping::WordOrGlyph,
                             },
-                            bounds.position() + iced::Vector::new(12.0, 12.0),
+                            bounds.position() + iced::Vector::new(0.0, 12.0),
                             theme.palette().text,
                             clip,
                         );
