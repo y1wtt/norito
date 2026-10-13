@@ -1,7 +1,7 @@
 //! The title row (brand, menus, document name, window buttons) and the open dropdown.
-use super::controls::panel;
+use super::controls::{filled_icon, outline_icon, panel};
 use crate::{
-    App, Message, menu::MenuAction, menu::MenuBar, theme, window_chrome::Action as Window,
+    App, Message, icons, menu::MenuAction, menu::MenuBar, theme, window_chrome::Action as Window,
 };
 use iced::{
     Element, Length, Padding,
@@ -27,17 +27,14 @@ fn menu_x(index: usize) -> f32 {
 impl App {
     pub(super) fn header_view(&self) -> Element<'_, Message> {
         let c = theme::colors(self.light);
-        let title = format!(
-            "{}{}",
-            self.vm.session.name(),
-            if self.vm.session.document.dirty() {
-                " •"
-            } else {
-                ""
-            }
-        );
+        let mut title = row![text(self.vm.session.name()).size(13).color(c.muted)]
+            .spacing(6)
+            .align_y(iced::Alignment::Center);
+        if self.vm.session.document.dirty() {
+            title = title.push(filled_icon(icons::DOT, 7.0, c.muted));
+        }
         let title = mouse_area(
-            container(text(title).size(13).color(c.muted))
+            container(title)
                 .center_x(Length::Fill)
                 .height(HEIGHT)
                 .center_y(HEIGHT),
@@ -59,16 +56,22 @@ impl App {
         header = header.push(title);
         if cfg!(target_os = "windows") {
             header = header
-                .push(self.control("—", Message::Window(Window::Minimize), true, false))
-                .push(self.control("□", Message::Window(Window::Maximize), true, false))
-                .push(self.control(
-                    "×",
+                .push(self.window_control(icons::MINIMIZE, Message::Window(Window::Minimize)))
+                .push(self.window_control(icons::MAXIMIZE, Message::Window(Window::Maximize)))
+                .push(self.window_control(
+                    icons::CLOSE,
                     Message::Command(Command::Navigate(Action::Exit)),
-                    true,
-                    false,
                 ));
         }
         header.into()
+    }
+    fn window_control<'a>(&self, path: &str, message: Message) -> Element<'a, Message> {
+        let c = theme::colors(self.light);
+        button(outline_icon(path, 16.0, c.text))
+            .padding([8, 10])
+            .on_press(message)
+            .style(move |_, status| theme::control(c, false, status))
+            .into()
     }
     fn menu_title<'a>(&self, index: usize, label: &'a str) -> Element<'a, Message> {
         let c = theme::colors(self.light);
@@ -99,9 +102,15 @@ impl App {
         let mut items = column![].spacing(2);
         for action in MenuBar::MENUS[index].1 {
             let submenu = *action == MenuAction::DisplayMode;
-            let mut label = row![text(action.to_string()).size(12)].width(Length::Fill);
+            let mut label = row![text(action.to_string()).size(12)]
+                .width(Length::Fill)
+                .align_y(iced::Alignment::Center);
             if submenu {
-                label = label.push(space::horizontal()).push(text("›").size(12));
+                label = label.push(space::horizontal()).push(outline_icon(
+                    icons::SUBMENU,
+                    14.0,
+                    c.text,
+                ));
             }
             items = items.push(
                 mouse_area(

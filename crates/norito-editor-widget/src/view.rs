@@ -60,7 +60,7 @@ impl MarkdownEditor {
         }
     }
 
-    /// What replaces each collapsed line, plus strike-through and quote rules.
+    /// What replaces each collapsed line, plus strike-through, checkboxes and quote rules.
     fn decorations(&self, theme: &Theme, media: &Media) -> Vec<Decoration<EditorEvent>> {
         let structure = self.structure();
         let mut decorations = vec![];
@@ -131,6 +131,13 @@ impl MarkdownEditor {
             }
             if cell.style.rule {
                 decorations.push(Decoration::Separator { line });
+            }
+            if let Some(checked) = cell.style.task {
+                decorations.push(Decoration::Checkbox {
+                    line,
+                    range: range.clone(),
+                    checked,
+                });
             }
             if cell.style.strike && !cell.style.syntax {
                 decorations.push(Decoration::Strike { line, range });

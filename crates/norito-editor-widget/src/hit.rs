@@ -11,8 +11,7 @@ impl MarkdownEditor {
         }
         let p = &self.projection;
         for cell in &p.cells {
-            let checkbox = matches!(&p.text[cell.display.clone()], "☐" | "☑")
-                && matches!(&p.source[cell.source.clone()], "[ ]" | "[x]" | "[X]");
+            let checkbox = cell.style.task.is_some();
             if !cell.style.link && !checkbox {
                 continue;
             }

@@ -188,7 +188,7 @@ fn checkbox_click_toggles_and_ctrl_click_edits_without_toggling() {
         point,
     ))));
     assert_eq!(app.vm.session.document.source, "- [x] todo\n");
-    assert!(app.editor.displayed().contains('☑'));
+    assert!(!app.editor.displayed().contains("[x]"));
     let point = document_click_point(&app, true);
     let _ = app.update(Message::Editor(EditorEvent::Action(EditAction::Click(
         point,
