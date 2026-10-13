@@ -29,6 +29,8 @@ pub struct TextStyle {
     pub math: bool,
     pub highlight: bool,
     pub small: bool,
+    /// A task marker the widget draws as a checkbox: `Some(checked)`.
+    pub task: Option<bool>,
 }
 /// One displayed unit and the source bytes it stands for.
 #[derive(Debug, Clone)]

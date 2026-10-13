@@ -9,7 +9,19 @@ use iced::advanced::{
     widget::{Operation, Tree, tree},
 };
 use iced::{Color, Element, Event, Font, Length, Point, Rectangle, Renderer, Size, Theme};
-use std::{cell::RefCell, collections::HashMap, sync::Arc};
+use std::{
+    cell::RefCell,
+    collections::HashMap,
+    sync::{Arc, LazyLock},
+};
+
+/// The tick of a checked box, as a path rather than a font glyph.
+static TICK: LazyLock<svg::Handle> = LazyLock::new(|| {
+    svg::Handle::from_memory(
+        br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M3.8 8.3l2.8 2.8 5.6-6.2" fill="none" stroke="black" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>"#
+            .as_slice(),
+    )
+});
 
 type LabelKey = (String, u32, Option<u32>);
 
@@ -76,6 +88,12 @@ pub enum Decoration<Message> {
         line: usize,
         range: std::ops::Range<usize>,
     },
+    /// A box over a blank placeholder in the text.
+    Checkbox {
+        line: usize,
+        range: std::ops::Range<usize>,
+        checked: bool,
+    },
     Separator {
         line: usize,
     },
@@ -98,6 +116,7 @@ impl<M> Decoration<M> {
             | Self::Table { line, .. }
             | Self::Image { line, .. }
             | Self::Strike { line, .. }
+            | Self::Checkbox { line, .. }
             | Self::Separator { line }
             | Self::InlineDiagram { line, .. } => *line,
         }
@@ -134,7 +153,9 @@ impl<Message: Clone> Decorated<'_, Message> {
         decoration: &Decoration<Message>,
         layout: Layout<'_>,
     ) -> Option<Rectangle> {
-        if let Decoration::InlineDiagram { line, range, .. } = decoration {
+        if let Decoration::InlineDiagram { line, range, .. }
+        | Decoration::Checkbox { line, range, .. } = decoration
+        {
             self.content
                 .span_bounds(*line, range.clone())
                 .first()
@@ -358,6 +379,39 @@ impl<Message: Clone> Widget<Message, Theme, Renderer> for Decorated<'_, Message>
                                     ..Default::default()
                                 },
                                 theme.palette().text,
+                            );
+                        }
+                    }
+                    Decoration::Checkbox { checked, .. } => {
+                        let side = (bounds.width * 0.87).round();
+                        let square = Rectangle {
+                            x: (bounds.center_x() - side / 2.0).round(),
+                            y: (bounds.center_y() - side / 2.0).round(),
+                            width: side,
+                            height: side,
+                        };
+                        let accent = theme.palette().primary;
+                        renderer.fill_quad(
+                            renderer::Quad {
+                                bounds: square,
+                                border: iced::Border {
+                                    width: 1.5,
+                                    color: if *checked {
+                                        accent
+                                    } else {
+                                        theme.palette().text.scale_alpha(0.6)
+                                    },
+                                    radius: 3.0.into(),
+                                },
+                                ..Default::default()
+                            },
+                            if *checked { accent } else { Color::TRANSPARENT },
+                        );
+                        if *checked {
+                            renderer.draw_svg(
+                                svg::Svg::new(TICK.clone()).color(theme.palette().background),
+                                square,
+                                clip,
                             );
                         }
                     }

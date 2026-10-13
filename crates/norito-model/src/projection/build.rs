@@ -141,8 +141,10 @@ impl<'a> Marks<'a> {
                 }
             }
             Event::TaskListMarker(checked) => {
-                if !self.raw_view && !self.editing(&range) {
-                    self.replace(range, if checked { "☑" } else { "☐" });
+                // A blank the widget draws a box over; fonts render ☐/☑ as emoji.
+                if self.interactive && !self.editing(&range) {
+                    self.styles[range.start].task = Some(checked);
+                    self.replace(range, "\u{2003}");
                 }
             }
             Event::Text(value) if raw != &*value && value.chars().count() == 1 => {
@@ -501,6 +503,25 @@ mod tests {
             assert!(editing.text.contains(block));
             assert_eq!(Projection::raw(&source).text, source);
         }
+    }
+    #[test]
+    fn task_markers_leave_a_blank_for_the_drawn_checkbox() {
+        let source = "- [ ] a\n- [x] b\n";
+        let p = Projection::editable(source, None);
+        let tasks: Vec<_> = p
+            .cells
+            .iter()
+            .filter_map(|c| Some((&source[c.source.clone()], c.style.task?)))
+            .collect();
+        assert_eq!(tasks, [("[ ]", false), ("[x]", true)]);
+        assert!(
+            p.cells
+                .iter()
+                .filter(|c| c.style.task.is_some())
+                .all(|c| p.text[c.display.clone()].trim().is_empty())
+        );
+        assert!(Projection::editable(source, Some(3)).text.contains("[ ]"));
+        assert!(Projection::new(source).text.contains("[x]"));
     }
     #[test]
     fn metadata_and_reference_labels_remain_readable() {
