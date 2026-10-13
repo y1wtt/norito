@@ -1,5 +1,8 @@
 //! The text editor element, with backgrounds and the blocks drawn over collapsed lines.
-use crate::{EditorEvent, MarkdownEditor, Media, Mode, TableAction, keymap, style::FONT};
+use crate::{
+    EditorEvent, MarkdownEditor, Media, Mode, TableAction, keymap,
+    style::{FONT, boxed_code},
+};
 use iced::{
     Color, Element, Font, Length, Theme,
     widget::{text_editor, text_editor::Style},
@@ -182,7 +185,7 @@ fn code_backgrounds(projection: &Projection, theme: &Theme) -> Vec<(Range<usize>
     };
     let mut backgrounds: Vec<(Range<usize>, Color, f32)> = Vec::new();
     for (line, style) in projection.line_styles.iter().enumerate() {
-        if style.block_code && !style.diagram {
+        if boxed_code(style) {
             if let Some((range, _, _)) = backgrounds.last_mut()
                 && range.end == line
             {

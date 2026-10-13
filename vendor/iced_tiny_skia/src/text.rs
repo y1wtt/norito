@@ -202,9 +202,13 @@ fn draw(
     let mut swash = cosmic_text::SwashCache::new();
 
     for run in buffer.layout_runs() {
+        // Editor lines may be inset; other buffers never set an inset.
+        let inset = editor::inset(&buffer.lines[run.line_i])
+            * transformation.scale_factor();
+
         for glyph in run.glyphs {
             let physical_glyph = glyph.physical(
-                (position.x, position.y),
+                (position.x + inset, position.y),
                 transformation.scale_factor(),
             );
 

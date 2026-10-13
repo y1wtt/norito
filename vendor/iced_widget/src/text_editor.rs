@@ -1058,9 +1058,8 @@ where
                 let rect = lines.clone().filter_map(|line| editor.line_bounds(line))
                     .reduce(|a, b| a.union(&b));
                 if let Some(rect) = rect {
+                    // Spans the text column; inset lines keep their text inside.
                     let mut rect = rect + Vector::new(text_bounds.x, text_bounds.y);
-                    rect.x = bounds.x;
-                    rect.width = bounds.width;
                     rect.y -= padding;
                     rect.height += padding * 2.0;
                     if let Some(rect) = rect.intersection(&bounds) {
