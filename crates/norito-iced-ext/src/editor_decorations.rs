@@ -66,11 +66,20 @@ impl Painter {
     }
 }
 
+/// An SVG with its size, and its baseline's distance from the top, in any one unit.
+#[derive(Debug, Clone)]
+pub struct Figure {
+    pub handle: svg::Handle,
+    pub size: Size,
+    pub baseline: f32,
+}
+
 pub enum Decoration<Message> {
+    /// Set in the text color, as wide as its span, its baseline on the text's.
     InlineDiagram {
         line: usize,
         range: std::ops::Range<usize>,
-        handle: Option<svg::Handle>,
+        figure: Option<Figure>,
         on_press: Message,
     },
     Table {
@@ -101,9 +110,13 @@ pub enum Decoration<Message> {
         line: usize,
         color: Color,
     },
+    /// Centered over its line, or `status` until there is an SVG.
     Diagram {
         line: usize,
         handle: Option<svg::Handle>,
+        /// Draw at this size, shrunk to fit, in the text color. Without one the SVG
+        /// keeps its own colors on a white panel it fills.
+        size: Option<Size>,
         status: String,
         on_press: Message,
     },
@@ -332,20 +345,22 @@ impl<Message: Clone> Widget<Message, Theme, Renderer> for Decorated<'_, Message>
                 }
                 match decoration {
                     Decoration::InlineDiagram {
-                        handle: Some(handle),
+                        range,
+                        figure: Some(figure),
                         ..
                     } => {
-                        let native = renderer.measure_svg(handle);
-                        let scale = (bounds.width / native.width as f32)
-                            .min(bounds.height / native.height as f32);
+                        let scale = bounds.width / figure.size.width;
+                        let baseline = self
+                            .content
+                            .span_baseline(line, range.clone())
+                            .map_or(bounds.center_y(), |y| {
+                                y + layout.bounds().y + crate::EDITOR_PADDING.top
+                            });
                         renderer.draw_svg(
-                            svg::Svg::new(handle.clone()).color(theme.palette().text),
+                            svg::Svg::new(figure.handle.clone()).color(theme.palette().text),
                             Rectangle::new(
-                                bounds.position(),
-                                Size::new(
-                                    native.width as f32 * scale,
-                                    native.height as f32 * scale,
-                                ),
+                                iced::Point::new(bounds.x, baseline - figure.baseline * scale),
+                                Size::new(bounds.width, figure.size.height * scale),
                             ),
                             clip,
                         );
@@ -503,21 +518,30 @@ impl<Message: Clone> Widget<Message, Theme, Renderer> for Decorated<'_, Message>
                     }
                     Decoration::Diagram {
                         handle: Some(handle),
+                        size,
                         ..
                     } => {
                         bounds = bounds.shrink(8.0);
-                        renderer.fill_quad(
-                            renderer::Quad {
-                                bounds,
-                                ..Default::default()
-                            },
-                            Color::WHITE,
-                        );
-                        let native = renderer.measure_svg(handle);
-                        let scale = (bounds.width / native.width as f32)
-                            .min(bounds.height / native.height as f32);
-                        let size =
-                            Size::new(native.width as f32 * scale, native.height as f32 * scale);
+                        let mut image = svg::Svg::new(handle.clone());
+                        let size = if let Some(size) = size {
+                            image = image.color(theme.palette().text);
+                            let scale = (bounds.width / size.width)
+                                .min(bounds.height / size.height)
+                                .min(1.0);
+                            Size::new(size.width * scale, size.height * scale)
+                        } else {
+                            renderer.fill_quad(
+                                renderer::Quad {
+                                    bounds,
+                                    ..Default::default()
+                                },
+                                Color::WHITE,
+                            );
+                            let native = renderer.measure_svg(handle);
+                            let scale = (bounds.width / native.width as f32)
+                                .min(bounds.height / native.height as f32);
+                            Size::new(native.width as f32 * scale, native.height as f32 * scale)
+                        };
                         let image_bounds = Rectangle::new(
                             iced::Point::new(
                                 bounds.center_x() - size.width / 2.0,
@@ -525,7 +549,7 @@ impl<Message: Clone> Widget<Message, Theme, Renderer> for Decorated<'_, Message>
                             ),
                             size,
                         );
-                        renderer.draw_svg(svg::Svg::new(handle.clone()), image_bounds, clip);
+                        renderer.draw_svg(image, image_bounds, clip);
                     }
                     Decoration::Diagram { status, .. } => {
                         painter.note(

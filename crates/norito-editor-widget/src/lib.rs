@@ -29,7 +29,11 @@ mod view;
 
 use iced::widget::{image, svg, text_editor};
 use norito_iced_ext::rich_editor;
-use norito_model::{Document, projection::Projection, structure::Diagram, structure::Structure};
+use norito_model::{
+    Document,
+    projection::Projection,
+    structure::{Diagram, Extent, Structure},
+};
 use std::{borrow::Cow, cell::RefCell, collections::HashMap, ops::Range, sync::Arc};
 pub use tables::TableAction;
 
@@ -70,8 +74,20 @@ pub enum Formatting {
 /// Rendered media shown in place of collapsed blocks. Missing entries render as pending.
 #[derive(Default)]
 pub struct Media {
-    pub diagrams: HashMap<Diagram, Result<svg::Handle, String>>,
+    pub diagrams: HashMap<Diagram, Result<Rendered, String>>,
     pub images: HashMap<String, Result<image::Handle, String>>,
+}
+/// A rendered diagram. Formulas also carry their extent, so text can make room for them.
+#[derive(Debug, Clone)]
+pub struct Rendered {
+    pub handle: svg::Handle,
+    pub extent: Option<Extent>,
+}
+
+impl Media {
+    fn rendered(&self, diagram: &Diagram) -> Option<&Rendered> {
+        self.diagrams.get(diagram)?.as_ref().ok()
+    }
 }
 
 pub struct MarkdownEditor {

@@ -1,8 +1,11 @@
 //! The text editor element, with backgrounds and the blocks drawn over collapsed lines.
-use crate::{EditorEvent, MarkdownEditor, Media, Mode, TableAction, keymap, style::FONT};
-use iced::{Color, Element, Font, Length, Theme, widget::text_editor::Style};
+use crate::{
+    EditorEvent, MarkdownEditor, Media, Mode, TableAction, keymap,
+    style::{DISPLAY_MATH_EM, FONT},
+};
+use iced::{Color, Element, Font, Length, Size, Theme, widget::text_editor::Style};
 use norito_iced_ext::{
-    editor_decorations::{Decoration, decorate},
+    editor_decorations::{Decoration, Figure, decorate},
     rich_editor::rich_editor,
 };
 use norito_model::projection::Projection;
@@ -24,7 +27,7 @@ impl MarkdownEditor {
             } else {
                 Font::with_name(FONT)
             })
-            .styles(self.styles(theme))
+            .styles(self.styles(theme, media))
             .block_backgrounds(code_backgrounds(&projection, theme))
             .span_backgrounds(highlights(&projection))
             .size(15)
@@ -104,12 +107,21 @@ impl MarkdownEditor {
                 && let Some(math) = structure.math.iter().find(|m| m.range.start == at)
             {
                 let rendered = media.diagrams.get(&math.diagram());
-                let handle = rendered.and_then(|r| r.as_ref().ok()).cloned();
+                // Sized in ems, with the baseline below the top.
+                let figure = rendered.and_then(|r| r.as_ref().ok()).and_then(|r| {
+                    let extent = r.extent?;
+                    Some(Figure {
+                        handle: r.handle.clone(),
+                        size: Size::new(extent.width, extent.height + extent.depth),
+                        baseline: extent.height,
+                    })
+                });
                 let on_press = EditorEvent::EditCode(at);
                 decorations.push(if math.display {
                     Decoration::Diagram {
                         line,
-                        handle,
+                        size: figure.as_ref().map(|f| f.size * DISPLAY_MATH_EM),
+                        handle: figure.map(|f| f.handle),
                         status: rendered
                             .and_then(|r| r.as_ref().err())
                             .cloned()
@@ -120,7 +132,7 @@ impl MarkdownEditor {
                     Decoration::InlineDiagram {
                         line,
                         range: range.clone(),
-                        handle,
+                        figure,
                         on_press,
                     }
                 });
@@ -155,7 +167,10 @@ impl MarkdownEditor {
                     Some(Err(error)) => format!("Mermaid: {error}\nクリックして編集"),
                     _ => "Mermaidを描画中…".into(),
                 },
-                handle: rendered.and_then(|r| r.as_ref().ok()).cloned(),
+                handle: rendered
+                    .and_then(|r| r.as_ref().ok())
+                    .map(|r| r.handle.clone()),
+                size: None,
                 on_press: EditorEvent::EditCode(source),
             });
         }

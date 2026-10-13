@@ -20,7 +20,7 @@ fn measure_continuous_input() {
                 .unwrap();
             doc.edit(edited);
             editor.synchronize(&doc, false);
-            std::hint::black_box(editor.styles(&Theme::Dark));
+            std::hint::black_box(editor.styles(&Theme::Dark, &Media::default()));
             if rebuild {
                 let caret = editor.content.cursor();
                 editor.content = rich_editor::Content::with_text(editor.displayed());
@@ -205,7 +205,7 @@ fn empty_heading_composition_matches_committed_layout_at_every_level() {
             15.0.into(),
             LineHeight::Relative(1.8),
             Wrapping::WordOrGlyph,
-            &widget.styles(&Theme::Dark),
+            &widget.styles(&Theme::Dark, &Media::default()),
         );
         editor.move_to(Cursor {
             position: Position { line, column },

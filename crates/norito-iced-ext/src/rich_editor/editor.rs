@@ -148,6 +148,19 @@ impl Editor {
             .collect()
     }
 
+    /// Baseline of the first run holding glyphs of a UTF-8 range on one logical line.
+    pub fn span_baseline(&self, line: usize, range: Range<usize>) -> Option<f32> {
+        self.buffer()
+            .layout_runs()
+            .filter(|run| run.line_i == line)
+            .find(|run| {
+                run.glyphs
+                    .iter()
+                    .any(|g| g.start < range.end && g.end > range.start)
+            })
+            .map(|run| run.line_y)
+    }
+
     /// A temporary layout with `content` composed at the caret. The document
     /// and its history are untouched; cosmic-text gives the composition the
     /// insertion point's typography, so it matches the committed text.
