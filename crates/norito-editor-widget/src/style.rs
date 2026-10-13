@@ -23,6 +23,13 @@ const MATH_SCALE: f32 = 1.1;
 pub(crate) const DISPLAY_MATH_EM: f32 = BODY * MATH_SCALE;
 /// How far below the middle of its line the text baseline sits, in ems.
 const BASELINE_DROP: f32 = 0.41;
+/// Code inside its background box, which spans the text column.
+const CODE_INSET: f32 = 12.0;
+
+/// Lines drawn as code: inside a background box, not folded into a diagram.
+pub(crate) fn boxed_code(style: &TextStyle) -> bool {
+    style.block_code && !style.diagram
+}
 
 fn heading_size(level: u8) -> f32 {
     match level {
@@ -166,6 +173,7 @@ impl MarkdownEditor {
             ),
             font: Some(font),
             size: Some(size.into()),
+            inset: None,
             color: Some(color),
         }
     }
@@ -229,6 +237,13 @@ impl MarkdownEditor {
         }
         if self.mode == Mode::Rich {
             self.reserve_block_lines(&mut lines, formulas);
+        }
+        for (spans, style) in lines.iter_mut().zip(&projection.line_styles) {
+            if boxed_code(style) {
+                for (_, format) in spans {
+                    format.inset = Some(CODE_INSET.into());
+                }
+            }
         }
         Styles(Arc::new(lines))
     }
@@ -353,6 +368,24 @@ mod tests {
             display,
             Some(1.5 * DISPLAY_MATH_EM + 2.0 * DISPLAY_MATH_MARGIN)
         );
+    }
+    #[test]
+    fn only_boxed_code_lines_are_inset() {
+        let doc = Document::new("text\n\n```rust\na\n\nb\n```\n\n```mermaid\nA\n```\n".into());
+        let mut editor = MarkdownEditor::new(&doc);
+        for mode in [Mode::Rich, Mode::Source] {
+            editor.set_mode(mode);
+            let styles = editor.styles(&Theme::Dark, &Media::default());
+            let projection = editor.shown();
+            let mut inset = 0;
+            for (spans, style) in styles.0.iter().zip(&projection.line_styles) {
+                let expected = boxed_code(style).then(|| CODE_INSET.into());
+                assert!(spans.iter().all(|(_, format)| format.inset == expected));
+                inset += usize::from(expected.is_some() && !spans.is_empty());
+            }
+            // a, the empty line and b; source adds the fences and the Mermaid block.
+            assert_eq!(inset, if mode == Mode::Rich { 3 } else { 8 }, "{mode:?}");
+        }
     }
     #[test]
     fn source_heading_metrics_are_shared() {

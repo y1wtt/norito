@@ -9,6 +9,15 @@ use iced::advanced::{
 };
 use iced::widget::text_editor::Content;
 use iced::{Color, Element, Event, Length, Rectangle, Renderer, Size, Theme};
+use std::sync::LazyLock;
+
+/// The tick of a checked box, as a path rather than a font glyph.
+static TICK: LazyLock<svg::Handle> = LazyLock::new(|| {
+    svg::Handle::from_memory(
+        br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M3.8 8.3l2.8 2.8 5.6-6.2" fill="none" stroke="black" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>"#
+            .as_slice(),
+    )
+});
 
 fn placeholder(
     renderer: &mut Renderer,
@@ -66,6 +75,12 @@ pub enum Decoration<Message> {
         line: usize,
         range: std::ops::Range<usize>,
     },
+    /// A box over a blank placeholder in the text.
+    Checkbox {
+        line: usize,
+        range: std::ops::Range<usize>,
+        checked: bool,
+    },
     Separator {
         line: usize,
     },
@@ -92,6 +107,7 @@ impl<M> Decoration<M> {
             | Self::Table { line, .. }
             | Self::Image { line, .. }
             | Self::Strike { line, .. }
+            | Self::Checkbox { line, .. }
             | Self::Separator { line }
             | Self::InlineDiagram { line, .. } => *line,
         }
@@ -128,7 +144,9 @@ impl<Message: Clone> Decorated<'_, Message> {
         decoration: &Decoration<Message>,
         layout: Layout<'_>,
     ) -> Option<Rectangle> {
-        if let Decoration::InlineDiagram { line, range, .. } = decoration {
+        if let Decoration::InlineDiagram { line, range, .. }
+        | Decoration::Checkbox { line, range, .. } = decoration
+        {
             self.content
                 .span_bounds(*line, range.clone())
                 .first()
@@ -142,10 +160,11 @@ impl<Message: Clone> Decorated<'_, Message> {
             self.bounds(decoration.line(), layout)
         }
     }
+    /// The line within the text column, so blocks start where text does.
     fn bounds(&self, line: usize, layout: Layout<'_>) -> Option<Rectangle> {
         self.content.line_bounds(line).map(|r| {
             r + iced::Vector::new(
-                layout.bounds().x,
+                layout.bounds().x + crate::EDITOR_PADDING.left,
                 layout.bounds().y + crate::EDITOR_PADDING.top,
             )
         })
@@ -346,6 +365,39 @@ impl<Message: Clone> Widget<Message, Theme, Renderer> for Decorated<'_, Message>
                             );
                         }
                     }
+                    Decoration::Checkbox { checked, .. } => {
+                        let side = (bounds.width * 0.87).round();
+                        let square = Rectangle {
+                            x: (bounds.center_x() - side / 2.0).round(),
+                            y: (bounds.center_y() - side / 2.0).round(),
+                            width: side,
+                            height: side,
+                        };
+                        let accent = theme.palette().primary;
+                        renderer.fill_quad(
+                            renderer::Quad {
+                                bounds: square,
+                                border: iced::Border {
+                                    width: 1.5,
+                                    color: if *checked {
+                                        accent
+                                    } else {
+                                        theme.palette().text.scale_alpha(0.6)
+                                    },
+                                    radius: 3.0.into(),
+                                },
+                                ..Default::default()
+                            },
+                            if *checked { accent } else { Color::TRANSPARENT },
+                        );
+                        if *checked {
+                            renderer.draw_svg(
+                                svg::Svg::new(TICK.clone()).color(theme.palette().background),
+                                square,
+                                clip,
+                            );
+                        }
+                    }
                     Decoration::Table {
                         cells, alignment, ..
                     } => {
@@ -429,6 +481,8 @@ impl<Message: Clone> Widget<Message, Theme, Renderer> for Decorated<'_, Message>
                         );
                     }
                     Decoration::Rule { color, .. } => {
+                        // In the left padding, beside the text it marks.
+                        bounds.x = layout.bounds().x;
                         bounds.width = 3.0;
                         renderer.fill_quad(
                             renderer::Quad {
@@ -443,7 +497,7 @@ impl<Message: Clone> Widget<Message, Theme, Renderer> for Decorated<'_, Message>
                         size,
                         ..
                     } => {
-                        bounds = bounds.shrink(8.0);
+                        bounds = bounds.shrink([8.0, 0.0]);
                         let mut image = svg::Svg::new(handle.clone());
                         let size = if let Some(size) = size {
                             image = image.color(theme.palette().text);
@@ -477,7 +531,7 @@ impl<Message: Clone> Widget<Message, Theme, Renderer> for Decorated<'_, Message>
                         renderer.fill_text(
                             text::Text {
                                 content: status.clone(),
-                                bounds: bounds.shrink(12.0).size(),
+                                bounds: bounds.shrink([12.0, 0.0]).size(),
                                 size: 12.0.into(),
                                 line_height: text::LineHeight::Relative(1.5),
                                 font: iced::Font::with_name("Yu Gothic UI"),
@@ -486,7 +540,7 @@ impl<Message: Clone> Widget<Message, Theme, Renderer> for Decorated<'_, Message>
                                 shaping: text::Shaping::Advanced,
                                 wrapping: text::Wrapping::WordOrGlyph,
                             },
-                            bounds.position() + iced::Vector::new(12.0, 12.0),
+                            bounds.position() + iced::Vector::new(0.0, 12.0),
                             theme.palette().text,
                             clip,
                         );

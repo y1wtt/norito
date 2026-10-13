@@ -155,12 +155,14 @@ impl editor::Editor for Editor {
         let cursor = match internal.editor.selection_bounds() {
             Some((start, end)) => Selection::Range(buffer.layout_runs().filter_map(|run| {
                 run.highlight(start, end).and_then(|(x, width)| {
+                    let x = x + line_inset(buffer, run.line_i);
                     (width > 0.0).then_some(Rectangle { x, y: run.line_top, width, height: run.line_height })
                 })
             }).collect()),
             None => {
+                let line = internal.editor.cursor().line;
                 let (x, y) = internal.editor.cursor_position().unwrap_or((-100, -100));
-                Selection::Caret(Point::new(x as f32, y as f32))
+                Selection::Caret(Point::new(x as f32 + line_inset(buffer, line), y as f32))
             }
         };
         *internal.selection.write().expect("Write to cursor cache") =
@@ -176,8 +178,10 @@ impl editor::Editor for Editor {
     }
 
     fn caret_bounds(&self) -> Option<Rectangle> {
-        let (x, y) = self.internal().editor.cursor_position()?;
-        Some(Rectangle::new(Point::new(x as f32, y as f32), Size::new(1.0, self.caret_height()?)))
+        let editor = &self.internal().editor;
+        let (x, y) = editor.cursor_position()?;
+        let x = x as f32 + line_inset(self.buffer(), editor.cursor().line);
+        Some(Rectangle::new(Point::new(x, y as f32), Size::new(1.0, self.caret_height()?)))
     }
 
     fn line_bounds(&self, line: usize) -> Option<Rectangle> {
@@ -188,13 +192,14 @@ impl editor::Editor for Editor {
         Some(Rectangle::new(Point::new(0.0, top), Size::new(self.bounds().width, bottom - top)))
     }
     fn span_bounds(&self, line: usize, range: std::ops::Range<usize>) -> Vec<Rectangle> {
+        let inset = line_inset(self.buffer(), line);
         self.buffer().layout_runs().filter(|run| run.line_i == line).filter_map(|run| {
             let mut left = f32::INFINITY;
             let mut right = f32::NEG_INFINITY;
             for glyph in run.glyphs.iter().filter(|g| g.start < range.end && g.end > range.start) {
                 left = left.min(glyph.x); right = right.max(glyph.x + glyph.w);
             }
-            (right > left).then(|| Rectangle::new(Point::new(left, run.line_top), Size::new(right - left, run.line_height)))
+            (right > left).then(|| Rectangle::new(Point::new(left + inset, run.line_top), Size::new(right - left, run.line_height)))
         }).collect()
     }
     fn span_baseline(&self, line: usize, range: std::ops::Range<usize>) -> Option<f32> {
@@ -221,6 +226,11 @@ impl editor::Editor for Editor {
         // cosmic-text inherits the insertion point's font, size and line metrics.
         editor.insert_string(content, None);
         let end = editor.cursor();
+        // Editing resets line metadata; composition keeps the line's inset.
+        let kept = line_inset(self.buffer(), start.line);
+        for line in &mut buffer_mut_from_editor(&mut editor).lines[start.line..=end.line] {
+            line.set_metadata(kept.to_bits() as usize);
+        }
         if let Some(range) = selection {
             let position = |offset: usize| {
                 let mut offset = offset.min(content.len());
@@ -234,6 +244,7 @@ impl editor::Editor for Editor {
         }
         let mut font_system = text::font_system().write().expect("Write font system");
         editor.shape_as_needed(font_system.raw(), true);
+        wrap_insets(buffer_mut_from_editor(&mut editor), font_system.raw());
         Some(Self(Some(Arc::new(Internal {
             editor,
             preedit: Some((start, end)),
@@ -246,8 +257,12 @@ impl editor::Editor for Editor {
 
     fn preedit_rectangles(&self) -> Vec<Rectangle> {
         let Some((start, end)) = self.internal().preedit else { return vec![]; };
-        self.buffer().layout_runs().filter_map(|run| {
-            run.highlight(start, end).and_then(|(x, width)| (width > 0.0).then_some(Rectangle { x, y: run.line_top, width, height: run.line_height }))
+        let buffer = self.buffer();
+        buffer.layout_runs().filter_map(|run| {
+            run.highlight(start, end).and_then(|(x, width)| {
+                let x = x + line_inset(buffer, run.line_i);
+                (width > 0.0).then_some(Rectangle { x, y: run.line_top, width, height: run.line_height })
+            })
         }).collect()
     }
 
@@ -455,19 +470,21 @@ impl editor::Editor for Editor {
 
                 // Mouse events
                 Action::Click(position) => {
+                    let x = position.x - inset_at(buffer_from_editor(editor), position.y);
                     editor.action(
                         font_system.raw(),
                         cosmic_text::Action::Click {
-                            x: position.x as i32,
+                            x: x as i32,
                             y: position.y as i32,
                         },
                     );
                 }
                 Action::Drag(position) => {
+                    let x = position.x - inset_at(buffer_from_editor(editor), position.y);
                     editor.action(
                         font_system.raw(),
                         cosmic_text::Action::Drag {
-                            x: position.x as i32,
+                            x: x as i32,
                             y: position.y as i32,
                         },
                     );
@@ -492,6 +509,7 @@ impl editor::Editor for Editor {
                     );
                 }
             }
+            wrap_insets(buffer_mut_from_editor(editor), font_system.raw());
         });
     }
 
@@ -519,6 +537,7 @@ impl editor::Editor for Editor {
             }
             let mut font_system = text::font_system().write().expect("Write font system");
             internal.editor.shape_as_needed(font_system.raw(), true);
+            wrap_insets(buffer_mut_from_editor(&mut internal.editor), font_system.raw());
         });
     }
 
@@ -621,6 +640,7 @@ impl editor::Editor for Editor {
 
             let _ = internal.selection.write().expect("cursor cache").take();
         internal.editor.shape_as_needed(font_system.raw(), false);
+            wrap_insets(buffer_mut_from_editor(&mut internal.editor), font_system.raw());
         });
     }
 
@@ -675,15 +695,21 @@ impl editor::Editor for Editor {
             // Defaults also style empty lines and insertions at the start of a heading.
             let defaults = spans.first().filter(|(range, _)| range.start == 0).map_or_else(|| attributes.clone(), |(_, format)| attrs(*format));
             let mut list = cosmic_text::AttrsList::new(&defaults);
+            let line_inset = spans.iter().filter_map(|(_, format)| format.inset).fold(0.0, |max, inset| inset.0.max(max));
             for (range, format) in spans {
                 list.add_span(range, &attrs(format));
             }
 
-            let _ = line.set_attrs_list(list);
+            // Metadata carries the inset to layout, hit testing and drawing.
+            if line.set_attrs_list(list) || line_inset != inset(line) {
+                line.set_metadata(line_inset.to_bits() as usize);
+                line.reset_layout();
+            }
         }
 
         let _ = internal.selection.write().expect("cursor cache").take();
         internal.editor.shape_as_needed(font_system.raw(), false);
+        wrap_insets(buffer_mut_from_editor(&mut internal.editor), font_system.raw());
 
         self.0 = Some(Arc::new(internal));
     }
@@ -774,6 +800,48 @@ fn to_motion(motion: Motion) -> cosmic_text::Motion {
         Motion::PageDown => cosmic_text::Motion::PageDown,
         Motion::DocumentStart => cosmic_text::Motion::BufferStart,
         Motion::DocumentEnd => cosmic_text::Motion::BufferEnd,
+    }
+}
+
+/// The horizontal inset a highlighter gave this line ([`highlighter::Format::inset`]).
+/// Layout glyph coordinates exclude it; consumers add it when placing ink and
+/// remove it from pointer positions.
+pub fn inset(line: &cosmic_text::BufferLine) -> f32 {
+    line.metadata().map_or(0.0, |bits| f32::from_bits(bits as u32))
+}
+
+fn line_inset(buffer: &cosmic_text::Buffer, line: usize) -> f32 {
+    buffer.lines.get(line).map_or(0.0, inset)
+}
+
+/// Inset of the visual line at `y`, for hit testing.
+fn inset_at(buffer: &cosmic_text::Buffer, y: f32) -> f32 {
+    buffer
+        .layout_runs()
+        .find(|run| y < run.line_top + run.line_height)
+        .map_or(0.0, |run| line_inset(buffer, run.line_i))
+}
+
+/// Wrap inset lines within the text width less both insets. cosmic-text lays
+/// out every line at the buffer width; a line that already fits the narrower
+/// width has the same layout either way, so only overflowing lines are redone.
+fn wrap_insets(buffer: &mut cosmic_text::Buffer, font_system: &mut cosmic_text::FontSystem) {
+    let Some(width) = buffer.size().0 else {
+        return;
+    };
+    let font_size = buffer.metrics().font_size;
+    let (wrap, monospace, tab) = (buffer.wrap(), buffer.monospace_width(), buffer.tab_width());
+    for line in &mut buffer.lines {
+        let amount = inset(line);
+        let narrow = (width - 2.0 * amount).max(0.0);
+        if amount > 0.0
+            && line
+                .layout_opt()
+                .is_some_and(|layout| layout.iter().any(|visual| visual.w > narrow))
+        {
+            line.reset_layout();
+            let _ = line.layout(font_system, font_size, Some(narrow), wrap, monospace, tab);
+        }
     }
 }
 

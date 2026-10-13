@@ -26,7 +26,9 @@ TextInput ignores empty IME Commit events, matching TextEditor's cancellation ha
 
 iced_tiny_skia 0.14.1 is patched in engine.rs: Editor ink always uses the local viewport clip mask, including full-damage redraws. Editor bounds are not ink bounds; partially visible lines otherwise paint outside the viewport and leave pixels that subsequent damage regions do not erase. A pixel regression test compares full and partial damage and rejects ink outside the viewport.
 
-TextEditor block_backgrounds paints each contiguous line range as one rectangle, eliminating per-line raster seams. layout_theme applies variable line metrics during layout so anchored table inputs use the same coordinates as text and decorations in the first frame.
+TextEditor block_backgrounds paints each contiguous line range as one rectangle across the text column, eliminating per-line raster seams.
+
+`Format::inset` insets a whole logical line from both sides of the text area, so text sits inside such a background box while the box edge stays aligned with surrounding text. cosmic-text has no per-line indent, so graphics stores the inset in the line's metadata while highlighting, rewraps overflowing inset lines at the narrower width, adds it to caret, selection, span and preedit rectangles and removes it from click and drag positions. iced_tiny_skia shifts the line's glyphs by the same amount. Editing resets metadata until the next highlight pass; IME composition restores it on the composed lines. A test in `norito-iced-ext` checks wrapping, hit testing, caret/selection geometry and ink placement. layout_theme applies variable line metrics during layout so anchored table inputs use the same coordinates as text and decorations in the first frame.
 
 Editor render references retain a cached immutable Buffer snapshot. Previously an intervening layout invalidated a weak live-editor reference and cached render groups drew no text. The raster regression also mutates the live editor after collecting a render group; glyphs must still be present. Snapshots are shared within a frame and invalidated on editor mutation.
 

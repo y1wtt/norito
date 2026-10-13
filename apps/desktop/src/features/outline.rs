@@ -1,9 +1,9 @@
 //! The navigation panel: headings, links, images, diagrams, code blocks and tables.
 use super::{Event, Kind, message};
-use crate::{App, Message, theme};
+use crate::{App, Message, icons, theme, view::controls::outline_icon};
 use iced::{
     Element, Length,
-    widget::{self, button, column, container, scrollable, text},
+    widget::{self, button, column, container, row, scrollable, text},
 };
 use norito_model::structure::Diagram;
 
@@ -33,10 +33,18 @@ impl App {
         }
         for l in &structure.links {
             if !l.image {
-                content = content.push(link(
-                    format!("↗ {}", l.label),
-                    message(Event::Follow(l.destination.clone())),
-                ));
+                content = content.push(
+                    button(
+                        row![
+                            outline_icon(icons::FOLLOW, 14.0, c.text),
+                            text(&l.label).size(12)
+                        ]
+                        .spacing(4)
+                        .align_y(iced::Alignment::Center),
+                    )
+                    .on_press(message(Event::Follow(l.destination.clone())))
+                    .style(widget::button::text),
+                );
                 continue;
             }
             content = content.push(text(&l.label).size(12).color(c.muted));

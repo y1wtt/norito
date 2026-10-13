@@ -1,7 +1,7 @@
 //! The text editor element, with backgrounds and the blocks drawn over collapsed lines.
 use crate::{
     EditorEvent, MarkdownEditor, Media, Mode, TableAction, keymap,
-    style::{DISPLAY_MATH_EM, FONT},
+    style::{DISPLAY_MATH_EM, FONT, boxed_code},
 };
 use iced::{
     Color, Element, Font, Length, Size, Theme,
@@ -63,7 +63,7 @@ impl MarkdownEditor {
         }
     }
 
-    /// What replaces each collapsed line, plus strike-through and quote rules.
+    /// What replaces each collapsed line, plus strike-through, checkboxes and quote rules.
     fn decorations(&self, theme: &Theme, media: &Media) -> Vec<Decoration<EditorEvent>> {
         let structure = self.structure();
         let mut decorations = vec![];
@@ -144,6 +144,13 @@ impl MarkdownEditor {
             if cell.style.rule {
                 decorations.push(Decoration::Separator { line });
             }
+            if let Some(checked) = cell.style.task {
+                decorations.push(Decoration::Checkbox {
+                    line,
+                    range: range.clone(),
+                    checked,
+                });
+            }
             if cell.style.strike && !cell.style.syntax {
                 decorations.push(Decoration::Strike { line, range });
             }
@@ -197,7 +204,7 @@ fn code_backgrounds(projection: &Projection, theme: &Theme) -> Vec<(Range<usize>
     };
     let mut backgrounds: Vec<(Range<usize>, Color, f32)> = Vec::new();
     for (line, style) in projection.line_styles.iter().enumerate() {
-        if style.block_code && !style.diagram {
+        if boxed_code(style) {
             if let Some((range, _, _)) = backgrounds.last_mut()
                 && range.end == line
             {
