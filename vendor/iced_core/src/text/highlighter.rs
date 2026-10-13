@@ -76,6 +76,9 @@ pub struct Format<Font> {
     pub line_height: Option<crate::Pixels>,
     /// Optional per-span font size for rich document editing (norito extension).
     pub size: Option<crate::Pixels>,
+    /// Inset of the whole line from both sides of the text area, for text
+    /// inside a box (norito extension). The largest inset on a line applies.
+    pub inset: Option<crate::Pixels>,
     /// The [`Color`] of the text.
     pub color: Option<Color>,
     /// The `Font` of the text.
@@ -87,6 +90,7 @@ impl<Font> Default for Format<Font> {
         Self {
             line_height: None,
             size: None,
+            inset: None,
             color: None,
             font: None,
         }
