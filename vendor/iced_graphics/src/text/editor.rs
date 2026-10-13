@@ -202,6 +202,11 @@ impl editor::Editor for Editor {
             (right > left).then(|| Rectangle::new(Point::new(left + inset, run.line_top), Size::new(right - left, run.line_height)))
         }).collect()
     }
+    fn span_baseline(&self, line: usize, range: std::ops::Range<usize>) -> Option<f32> {
+        self.buffer().layout_runs().filter(|run| run.line_i == line)
+            .find(|run| run.glyphs.iter().any(|g| g.start < range.end && g.end > range.start))
+            .map(|run| run.line_y)
+    }
 
     fn with_preedit(&self, content: &str, selection: Option<std::ops::Range<usize>>) -> Option<Self> {
         let original = self.internal();

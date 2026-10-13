@@ -38,7 +38,17 @@ pub struct Table {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Diagram {
     Mermaid(String),
-    Math(String),
+    InlineMath(String),
+    DisplayMath(String),
+}
+/// A rendered formula's size in ems, so the text around it can make room.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Extent {
+    pub width: f32,
+    /// Above the baseline.
+    pub height: f32,
+    /// Below the baseline.
+    pub depth: f32,
 }
 #[derive(Debug, Clone, Default)]
 pub struct Structure {
@@ -57,7 +67,11 @@ impl CodeBlock {
 }
 impl Math {
     pub fn diagram(&self) -> Diagram {
-        Diagram::Math(self.content.clone())
+        if self.display {
+            Diagram::DisplayMath(self.content.clone())
+        } else {
+            Diagram::InlineMath(self.content.clone())
+        }
     }
 }
 

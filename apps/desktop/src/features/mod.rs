@@ -42,7 +42,10 @@ pub enum Event {
     Resource(bool),
     ResourceReady(Result<Option<ResourceLink>>, Placement),
     PageReady(Result<FileRef>, String, u64),
-    Diagram(Diagram, std::result::Result<String, String>),
+    Diagram(
+        Diagram,
+        std::result::Result<norito_render::Rendering, String>,
+    ),
     Image(String, Result<Vec<u8>>, u64),
 }
 #[derive(Default)]
