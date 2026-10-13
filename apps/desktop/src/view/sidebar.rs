@@ -5,6 +5,7 @@ use iced::{
     Element, Length,
     widget::{Column, button, column, container, row, scrollable, svg, text, text_input, tooltip},
 };
+use norito_iced_ext::events::keep_selection_on_ime_cancel;
 use norito_platform::{DirectoryHandle, Entry};
 use norito_viewmodel::{Action, Command, EntryKind};
 use std::{
@@ -162,7 +163,7 @@ impl App {
                 EntryKind::File => "ファイル名.md",
             };
             tree = tree.push(
-                container(
+                container(keep_selection_on_ime_cancel(
                     text_input(placeholder, &creation.name)
                         .id("new-file")
                         .size(12)
@@ -172,7 +173,7 @@ impl App {
                                 .then_some(|name| Message::Command(Command::NewName(name))),
                         )
                         .on_submit(Message::Command(Command::CreateFile)),
-                )
+                ))
                 .padding(indent),
             );
         }

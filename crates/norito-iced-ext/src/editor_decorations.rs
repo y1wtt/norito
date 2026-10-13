@@ -1,38 +1,57 @@
 //! Viewport-aligned decorations for a continuous editor. No Markdown knowledge.
+use crate::{ink, rich_editor::Content};
+use iced::advanced::graphics::text::cosmic_text::Buffer;
 use iced::advanced::{
     Clipboard, Layout, Renderer as _, Shell, Widget,
     image::{self, Renderer as _},
     layout, mouse, renderer,
     svg::{self, Renderer as _},
-    text::{self, Renderer as _},
-    widget::{Operation, Tree},
+    widget::{Operation, Tree, tree},
 };
-use iced::widget::text_editor::Content;
-use iced::{Color, Element, Event, Length, Rectangle, Renderer, Size, Theme};
+use iced::{Color, Element, Event, Font, Length, Point, Rectangle, Renderer, Size, Theme};
+use std::{cell::RefCell, collections::HashMap, sync::Arc};
 
-fn placeholder(
-    renderer: &mut Renderer,
-    bounds: Rectangle,
-    clip: Rectangle,
-    theme: &Theme,
-    label: &str,
-) {
-    renderer.fill_text(
-        text::Text {
-            content: label.to_owned(),
-            bounds: bounds.size(),
-            size: 12.0.into(),
-            line_height: text::LineHeight::Relative(1.5),
-            font: iced::Font::with_name("Yu Gothic UI"),
-            align_x: text::Alignment::Default,
-            align_y: iced::alignment::Vertical::Top,
-            shaping: text::Shaping::Advanced,
-            wrapping: text::Wrapping::WordOrGlyph,
-        },
-        bounds.position(),
-        theme.palette().text,
-        clip,
-    );
+type LabelKey = (String, u32, Option<u32>);
+
+/// Labels shaped for the last frame. Renderers reference them weakly until
+/// the frame is presented.
+#[derive(Default)]
+struct Labels(RefCell<HashMap<LabelKey, Arc<Buffer>>>);
+
+/// Draws one frame's labels, reusing those whose text and width are unchanged.
+/// Each label is clipped to its own area, which the renderer also redraws.
+struct Painter {
+    previous: HashMap<LabelKey, Arc<Buffer>>,
+    current: HashMap<LabelKey, Arc<Buffer>>,
+}
+impl Painter {
+    fn label(&mut self, content: &str, size: f32, width: Option<f32>) -> Arc<Buffer> {
+        let key = (content.to_owned(), size.to_bits(), width.map(f32::to_bits));
+        if let Some(label) = self.current.get(&key) {
+            return label.clone();
+        }
+        let label = self.previous.remove(&key).unwrap_or_else(|| {
+            let font = Font::with_name("Yu Gothic UI");
+            let line_height = if width.is_some() { 1.5 } else { 1.4 };
+            Arc::new(ink::label(content, font, size, size * line_height, width))
+        });
+        self.current.insert(key, label.clone());
+        label
+    }
+    /// Small text wrapped within `bounds`.
+    fn note(
+        &mut self,
+        renderer: &mut Renderer,
+        bounds: Rectangle,
+        clip: Rectangle,
+        color: Color,
+        content: &str,
+    ) {
+        let label = self.label(content, 12.0, Some(bounds.width));
+        if let Some(clip) = bounds.intersection(&clip) {
+            ink::fill(renderer, &label, bounds.position(), color, clip);
+        }
+    }
 }
 
 pub enum Decoration<Message> {
@@ -139,6 +158,12 @@ impl<Message: Clone> Decorated<'_, Message> {
     }
 }
 impl<Message: Clone> Widget<Message, Theme, Renderer> for Decorated<'_, Message> {
+    fn tag(&self) -> tree::Tag {
+        tree::Tag::of::<Labels>()
+    }
+    fn state(&self) -> tree::State {
+        tree::State::new(Labels::default())
+    }
     fn size(&self) -> Size<Length> {
         self.editor.as_widget().size()
     }
@@ -270,6 +295,11 @@ impl<Message: Clone> Widget<Message, Theme, Renderer> for Decorated<'_, Message>
         let Some(clip) = layout.bounds().intersection(viewport) else {
             return;
         };
+        let labels = tree.state.downcast_ref::<Labels>();
+        let mut painter = Painter {
+            previous: labels.0.take(),
+            current: HashMap::new(),
+        };
         renderer.with_layer(clip, |renderer| {
             for decoration in &self.decorations {
                 let line = decoration.line();
@@ -300,7 +330,7 @@ impl<Message: Clone> Widget<Message, Theme, Renderer> for Decorated<'_, Message>
                         );
                     }
                     Decoration::InlineDiagram { .. } => {
-                        placeholder(renderer, bounds, clip, theme, "数式…");
+                        painter.note(renderer, bounds, clip, theme.palette().text, "数式…");
                     }
                     Decoration::Separator { .. } => {
                         bounds.y += bounds.height / 2.0;
@@ -360,29 +390,23 @@ impl<Message: Clone> Widget<Message, Theme, Renderer> for Decorated<'_, Message>
                                         theme.palette().background
                                     },
                                 );
-                                // fill_text positions the text by its alignment anchor.
                                 let inner = cell.shrink(7.0);
-                                let (align_x, x) = match alignment.get(c) {
-                                    Some(1) => (text::Alignment::Center, inner.center_x()),
-                                    Some(2) => (text::Alignment::Right, inner.x + inner.width),
-                                    _ => (text::Alignment::Default, inner.x),
+                                let label = painter.label(value, 14.0, None);
+                                let width = ink::width(&label);
+                                let x = match alignment.get(c) {
+                                    Some(1) => inner.center_x() - width / 2.0,
+                                    Some(2) => inner.x + inner.width - width,
+                                    _ => inner.x,
                                 };
-                                renderer.fill_text(
-                                    text::Text {
-                                        content: value.clone(),
-                                        bounds: inner.size(),
-                                        font: iced::Font::with_name("Yu Gothic UI"),
-                                        size: 14.0.into(),
-                                        line_height: text::LineHeight::Relative(1.4),
-                                        align_x,
-                                        align_y: iced::alignment::Vertical::Top,
-                                        shaping: text::Shaping::Advanced,
-                                        wrapping: text::Wrapping::None,
-                                    },
-                                    iced::Point::new(x, inner.y),
-                                    theme.palette().text,
-                                    cell.intersection(&clip).unwrap_or_default(),
-                                );
+                                if let Some(cell_clip) = cell.intersection(&clip) {
+                                    ink::fill(
+                                        renderer,
+                                        &label,
+                                        Point::new(x, inner.y),
+                                        theme.palette().text,
+                                        cell_clip,
+                                    );
+                                }
                             }
                         }
                     }
@@ -405,11 +429,11 @@ impl<Message: Clone> Widget<Message, Theme, Renderer> for Decorated<'_, Message>
                         );
                     }
                     Decoration::Image { .. } => {
-                        placeholder(
+                        painter.note(
                             renderer,
                             bounds,
                             clip,
-                            theme,
+                            theme.palette().text,
                             "画像を表示できません。クリックでパスを編集",
                         );
                     }
@@ -450,25 +474,17 @@ impl<Message: Clone> Widget<Message, Theme, Renderer> for Decorated<'_, Message>
                         renderer.draw_svg(svg::Svg::new(handle.clone()), image_bounds, clip);
                     }
                     Decoration::Diagram { status, .. } => {
-                        renderer.fill_text(
-                            text::Text {
-                                content: status.clone(),
-                                bounds: bounds.shrink(12.0).size(),
-                                size: 12.0.into(),
-                                line_height: text::LineHeight::Relative(1.5),
-                                font: iced::Font::with_name("Yu Gothic UI"),
-                                align_x: text::Alignment::Default,
-                                align_y: iced::alignment::Vertical::Top,
-                                shaping: text::Shaping::Advanced,
-                                wrapping: text::Wrapping::WordOrGlyph,
-                            },
-                            bounds.position() + iced::Vector::new(12.0, 12.0),
-                            theme.palette().text,
+                        painter.note(
+                            renderer,
+                            bounds.shrink(12.0),
                             clip,
+                            theme.palette().text,
+                            status,
                         );
                     }
                 }
             }
         });
+        *labels.0.borrow_mut() = painter.current;
     }
 }

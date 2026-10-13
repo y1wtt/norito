@@ -1,12 +1,9 @@
 //! The text editor element, with backgrounds and the blocks drawn over collapsed lines.
 use crate::{EditorEvent, MarkdownEditor, Media, Mode, TableAction, keymap, style::FONT};
-use iced::{
-    Color, Element, Font, Length, Theme,
-    widget::{text_editor, text_editor::Style},
-};
+use iced::{Color, Element, Font, Length, Theme, widget::text_editor::Style};
 use norito_iced_ext::{
     editor_decorations::{Decoration, decorate},
-    styled_text::StyledText,
+    rich_editor::rich_editor,
 };
 use norito_model::projection::Projection;
 use std::ops::Range;
@@ -19,8 +16,7 @@ impl MarkdownEditor {
         media: &Media,
     ) -> Element<'a, EditorEvent> {
         let projection = self.shown();
-        let mut editor = text_editor(&self.content)
-            .layout_theme(theme.clone())
+        let mut editor = rich_editor(&self.content)
             .key_binding(keymap::binding)
             .id("document")
             .font(if self.mode == Mode::Source {
@@ -28,7 +24,7 @@ impl MarkdownEditor {
             } else {
                 Font::with_name(FONT)
             })
-            .highlight_with::<StyledText>(self.styles(theme), |format, _| *format)
+            .styles(self.styles(theme))
             .block_backgrounds(code_backgrounds(&projection, theme))
             .span_backgrounds(highlights(&projection))
             .size(15)

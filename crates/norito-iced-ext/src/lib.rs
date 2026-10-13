@@ -1,6 +1,10 @@
 //! Reusable GUI extension points. No application or Markdown dependencies.
+//! Built on Iced's public API only.
 pub mod editor_decorations;
+pub mod events;
+mod ink;
 pub mod inline_editor;
+pub mod rich_editor;
 pub mod styled_text;
 use iced::{Background, Border, Color, widget::container};
 

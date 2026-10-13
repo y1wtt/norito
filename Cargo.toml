@@ -1,13 +1,6 @@
 [workspace]
 resolver = "3"
 members = ["apps/desktop", "crates/*"]
-exclude = ["vendor/iced_core", "vendor/iced_graphics", "vendor/iced_widget", "vendor/iced_tiny_skia"]
-
-[patch.crates-io]
-iced_core = { path = "vendor/iced_core" }
-iced_graphics = { path = "vendor/iced_graphics" }
-iced_widget = { path = "vendor/iced_widget" }
-iced_tiny_skia = { path = "vendor/iced_tiny_skia" }
 
 [workspace.package]
 version = "0.1.0"

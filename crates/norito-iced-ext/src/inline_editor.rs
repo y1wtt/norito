@@ -1,9 +1,9 @@
 //! An interactive child anchored to a logical editor line, within its viewport.
+use crate::rich_editor::Content;
 use iced::advanced::{
     Clipboard, Layout, Shell, Widget, layout, mouse, renderer,
     widget::{Operation, Tree},
 };
-use iced::widget::text_editor::Content;
 use iced::{Element, Event, Length, Rectangle, Renderer, Size, Theme};
 
 pub fn inline<'a, M: Clone + 'a>(

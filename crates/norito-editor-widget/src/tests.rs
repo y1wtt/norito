@@ -4,7 +4,6 @@ use iced::{
     Font, Theme,
     advanced::text::editor::{Cursor, Position},
 };
-use norito_iced_ext::styled_text::StyledText;
 
 #[test]
 #[ignore = "manual continuous input timing"]
@@ -24,7 +23,7 @@ fn measure_continuous_input() {
             std::hint::black_box(editor.styles(&Theme::Dark));
             if rebuild {
                 let caret = editor.content.cursor();
-                editor.content = text_editor::Content::with_text(editor.displayed());
+                editor.content = rich_editor::Content::with_text(editor.displayed());
                 editor.content.move_to(caret);
             }
         }
@@ -194,27 +193,19 @@ fn consecutive_headings_keep_ime_commits_after_their_markers() {
 }
 #[test]
 fn empty_heading_composition_matches_committed_layout_at_every_level() {
-    use iced::advanced::{
-        graphics::text::Editor,
-        text::{Editor as _, Highlighter as _, LineHeight, Wrapping},
-    };
+    use iced::advanced::text::{LineHeight, Wrapping};
+    use norito_iced_ext::rich_editor::Editor;
     fn layout(source: &str, line: usize, column: usize) -> Editor {
         let document = Document::new(source.into());
         let widget = MarkdownEditor::new(&document);
         let mut editor = Editor::with_text(&widget.projection.text);
-        let mut highlighter = StyledText::new(&widget.styles(&Theme::Dark));
         editor.update(
             iced::Size::new(720.0, 500.0),
             Font::with_name("Yu Gothic UI"),
             15.0.into(),
             LineHeight::Relative(1.8),
             Wrapping::WordOrGlyph,
-            &mut highlighter,
-        );
-        editor.highlight(
-            Font::with_name("Yu Gothic UI"),
-            &mut highlighter,
-            |format| *format,
+            &widget.styles(&Theme::Dark),
         );
         editor.move_to(Cursor {
             position: Position { line, column },
@@ -228,9 +219,7 @@ fn empty_heading_composition_matches_committed_layout_at_every_level() {
             let source = format!("{before}{marker} {after}");
             let original = layout(&source, line, 0);
             let content = "日本語の見出し";
-            let preview = original
-                .with_preedit(content, Some(content.len()..content.len()))
-                .unwrap();
+            let preview = original.with_preedit(content, Some(content.len()..content.len()));
             let committed = layout(
                 &format!("{before}{marker} {content}{after}"),
                 line,

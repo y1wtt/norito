@@ -5,6 +5,7 @@ use iced::{
     Element, Task,
     widget::{self, column, container, row, text, text_input},
 };
+use norito_iced_ext::events::keep_selection_on_ime_cancel;
 use norito_viewmodel::Command;
 use std::ops::Range;
 
@@ -145,11 +146,13 @@ impl App {
         container(
             column![
                 row![
-                    text_input("検索", &search.query)
-                        .id("find")
-                        .on_input(|v| message(Event::Query(v)))
-                        .on_submit(message(Event::FindNext(false)))
-                        .size(13),
+                    keep_selection_on_ime_cancel(
+                        text_input("検索", &search.query)
+                            .id("find")
+                            .on_input(|v| message(Event::Query(v)))
+                            .on_submit(message(Event::FindNext(false)))
+                            .size(13)
+                    ),
                     control(icons::UP, "前の一致", Event::FindNext(true), false),
                     control(icons::DOWN, "次の一致", Event::FindNext(false), false),
                     text(count.map_or_else(|| "—".into(), |n| format!("{n}件"))).size(12),
@@ -158,9 +161,11 @@ impl App {
                 .spacing(8)
                 .align_y(iced::Alignment::Center),
                 row![
-                    text_input("置換", &search.replacement)
-                        .on_input(|v| message(Event::Replacement(v)))
-                        .size(13),
+                    keep_selection_on_ime_cancel(
+                        text_input("置換", &search.replacement)
+                            .on_input(|v| message(Event::Replacement(v)))
+                            .size(13)
+                    ),
                     control(icons::REPLACE, "置換", Event::Replace(false), false),
                     control(
                         icons::REPLACE_ALL,

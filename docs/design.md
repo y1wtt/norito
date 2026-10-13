@@ -5,7 +5,7 @@
 
 実装状況は [README](../README.md) を参照。以下のMVP要件をすべて実装した状態ではない。現段階のI/Oポートは同期traitとして定義し、Hostのblocking workerで実行する。ディレクトリ列挙のページング、外部変更監視は後続とする。
 
-現在の編集面はModelの `Projection` が保持する原文・表示範囲の対応を使い、単一のIced TextEditor上で直接編集する。汎用HighlighterとIcedへの可変文字サイズ・選択座標のパッチを組み合わせ、本文と見出しで独立した入力欄を作らない。未編集箇所を含めた文書全体の再シリアライズは行わない。
+現在の編集面はModelの `Projection` が保持する原文・表示範囲の対応を使い、単一のIced TextEditor上で直接編集する。iced-extの編集部品で行内の文字ごとに大きさと行高を変え、本文と見出しで独立した入力欄を作らない。未編集箇所を含めた文書全体の再シリアライズは行わない。
 
 画面は本文を中心にし、通常操作を「ファイル・書式・表示」のメニューとショートカットへ集約する。サイドバーは非表示にできる。常設の書式・保存ツールバー、ブランドの説明文、装飾的なキャッチコピー、起動時のサンプル文章は置かない。
 
@@ -93,14 +93,13 @@ Icedの `update` はメッセージをViewModelのコマンドへ変換し、返
 
 ### Iced独自拡張の分割
 
-Icedを独自拡張することを前提に、次の単位で分離する。まず公開APIによる拡張を実装し、本体への変更が必要な場合は別のパッチとして管理する。
+Icedを独自拡張することを前提に、次の単位で分離する。拡張はIcedの公開APIだけで行い、本体にはパッチを当てない。公開APIの部品で足りない場合は、Icedの実装を基にした独自部品をiced-extに置く。
 
 | 配置 | 責務 | 依存の境界 |
 | --- | --- | --- |
 | `norito-iced-ext` | 汎用のテキストレイアウト補助、ヒットテスト、IME接続、選択描画、再利用可能なGUI部品 | Icedには依存するが、Markdown、Model、ViewModel、ファイルI/Oには依存しない |
 | `norito-editor-widget` | `MarkdownEditor`、表示投影とレイアウトの対応、編集入力イベント、Markdown固有の描画 | Iced、iced-ext、Modelの公開型に依存する。ViewModelやOSサービスには依存しない |
 | `apps/desktop` | 画面構成、アプリのテーマ、ウィジェットイベントとViewModelコマンドの接続、Effectの実行 | 汎用部品を組み合わせ、アプリ固有の動作を決める |
-| `vendor/iced_*` | 公開APIでは対応できないIced本体・ランタイム・描画バックエンドの変更 | アプリ固有のMarkdown処理や保存処理を持ち込まない |
 
 `norito-iced-ext` は必要になった拡張から切り出す。Icedの全APIを独自のtraitで包む抽象化は作らず、バージョン依存の処理は内部の `compat` モジュールに集約する。Icedの型を使える範囲はGUIクレートとdesktopに限定し、Model・ViewModel・OSポートの公開APIには含めない。
 
@@ -108,7 +107,7 @@ Icedを独自拡張することを前提に、次の単位で分離する。ま�
 
 Modelの `ProjectionMap` は原文と論理的な表示内容の対応を管理する。フォント、ピクセル座標、折り返し、ヒットテストのキャッシュはGUI側で管理し、純粋な編集規則と描画エンジンを分離する。IMEのOSイベントと候補位置の接続はGUI側で扱い、ファイル等のOSサービスポートとは別の責務とする。
 
-Iced本体への変更は `vendor/iced_core`、`vendor/iced_graphics`、`vendor/iced_widget` に分け、基準revisionと変更内容を `vendor/README.md` に記録する。workspaceルートのCargo patchで依存先を統一する。変更理由、影響するOS、再現手順、上流への提案状況を記録する。互換なIced関連クレート一式を揃え、独自版と上流版の型が混在しないことを確認する。上流更新時は拡張部品の検証と編集ウィジェットのIME・選択・描画検証を先に行う。
+編集部品はcosmic-textを `iced::advanced::graphics` 経由で直接扱い、`fill_raw` で描画する。tiny-skiaは宣言サイズが描画レイヤーを超える生テキストだけをレイヤーで切り取るため、描画用バッファのサイズを大きく宣言し、一部だけ見える行や表のセルからはみ出す文字を描画範囲外へ漏らさない。Iced更新時はiced-extのピクセル回帰テストと、編集ウィジェットのIME・選択・描画検証を先に行う。
 
 ## 4. Markdown編集モデル
 
@@ -275,9 +274,6 @@ norito/
       macos/
       linux/
     norito-platform-mock/src/   # メモリ上のI/O・遅延・失敗注入
-  vendor/iced_core/            # Highlighterの文字サイズ・キャレット行高
-  vendor/iced_graphics/        # 可変サイズ・実際の行高を使った選択座標
-  vendor/iced_widget/          # キャレット描画・ドロップダウン幅
   tests/fixtures/markdown/
   docs/design.md
 ```
@@ -294,7 +290,7 @@ GUI側の依存方向は `desktop → editor-widget → iced-ext → Iced` と�
 
 ここを通過するまではIced採用を確定しない。ソース入力とプレビューが動くだけでは合格にしない。
 
-試作時からiced-extとeditor-widgetを分け、アプリ全体を起動せずに各examplesで検証できるようにする。本体パッチが必要な問題は最小の再現例を作り、汎用拡張・Markdown固有処理・Iced本体のどこで対応するかを判断する。
+試作時からiced-extとeditor-widgetを分け、アプリ全体を起動せずに各examplesで検証できるようにする。公開APIで解決できない問題は最小の再現例を作り、汎用拡張とMarkdown固有処理のどちらで対応するかを判断する。
 
 ### Phase 1: 開く・編集・保存の縦断実装
 
@@ -348,7 +344,7 @@ IME未確定文字は本文と同じ書式・折り返しの一時レイアウ�
 
 編集位置に入ったインライン書式だけ記号を公開する。折り畳んだ図・画像・表・数式は原文の範囲を持つ一つのセルとして扱い、範囲削除で部分的に記法を残さない。原文モードは同じ書式解析から文字サイズを得て、全バイトを表示する。自動補完した閉じ記号の位置は通常入力とIME確定で更新し、Undoや文書切り替えで破棄する。
 
-コードの色分けはeditor-widgetのsyntect連携、Mermaid・数式のSVG生成は`norito-render`が担当し、desktopの非同期ワーカーから呼び出す。汎用の罫線・SVG・画像・表の描画とクリック処理はiced-ext、原文との対応はModelとeditor-widgetに置く。Iced本体には行・文字範囲の座標取得と背景描画だけを追加し、Markdownへの依存を持たせない。
+コードの色分けはeditor-widgetのsyntect連携、Mermaid・数式のSVG生成は`norito-render`が担当し、desktopの非同期ワーカーから呼び出す。汎用の罫線・SVG・画像・表の描画とクリック処理はiced-ext、原文との対応はModelとeditor-widgetに置く。行・文字範囲の座標取得と背景描画はiced-extの編集部品が提供し、Markdownへの依存を持たせない。
 
 ページ間リンクはDocumentResourcesを通して解決し、OSパスをViewModelへ持ち込まない。通常クリックは編集、修飾キー付きクリックまたは修飾キー+Enterで移動する。Unicode・空白・パーセント符号化された相対パスと見出しを扱い、文書移動は未保存確認を通す。検索・置換の状態はdesktopに持ち、置換結果は通常の文書コマンドとして履歴へ入れる。
 

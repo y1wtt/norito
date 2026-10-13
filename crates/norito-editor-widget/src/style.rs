@@ -1,7 +1,7 @@
 //! Typography: per-line highlight spans for the displayed text, cached by input.
 use crate::{MarkdownEditor, Mode, tables::ROW_HEIGHT};
-use iced::{Color, Font, Theme, advanced::text::highlighter::Format, font};
-use norito_iced_ext::styled_text::{Span, Styles};
+use iced::{Color, Font, Theme, font};
+use norito_iced_ext::styled_text::{Format, Span, Styles};
 use norito_model::{projection::TextStyle, text::line_index};
 use std::sync::Arc;
 
@@ -79,7 +79,7 @@ impl MarkdownEditor {
         });
         styles
     }
-    fn span_format(&self, style: TextStyle, source: usize, theme: &Theme) -> Format<Font> {
+    fn span_format(&self, style: TextStyle, source: usize, theme: &Theme) -> Format {
         let size = if style.heading > 0 {
             heading_size(style.heading)
         } else if style.small {

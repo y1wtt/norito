@@ -111,6 +111,7 @@ fn grid_view<'a>(edit: &TableEdit) -> Element<'a, EditorEvent> {
                     style.border.width = 1.0;
                     style
                 });
+            let input = norito_iced_ext::events::keep_selection_on_ime_cancel(input);
             cells = cells.push(
                 mouse_area(container(input).height(ROW_HEIGHT).width(Length::Fill))
                     .on_press(EditorEvent::Table(TableAction::Focus(offset, r, c))),

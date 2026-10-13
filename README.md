@@ -3,7 +3,7 @@
 Rustで構築するデスクトップ向けWYSIWYG Markdownエディタ。
 
 - GUI: Iced（専用のMarkdown編集ウィジェットを実装）
-- GUI分割: 汎用Iced拡張 / Markdown編集ウィジェット / アプリ画面。本体パッチは `vendor` で管理
+- GUI分割: 汎用Iced拡張 / Markdown編集ウィジェット / アプリ画面。Iced本体は改変せず、公開APIだけで拡張する
 - アーキテクチャ: MVVM + OSサービスのポート／アダプター
 - 対象OS: Windows / macOS / Linux
 - MVP: 文書編集・保存に加え、フォルダを開いてファイルツリーから文書を切り替える
@@ -85,14 +85,14 @@ cargo run --release -p norito-desktop -- --folder examples/notes --file examples
 | `norito-platform` | FileStore / DirectoryStore / FileDialog / Paths / DocumentResources / ResourcePicker / ExternalOpener traitと共有型 |
 | `norito-platform-native` | ネイティブI/Oとダイアログの具象Adapter |
 | `norito-platform-mock` | テスト用メモリ保存Adapter |
-| `norito-iced-ext` | 汎用リッチテキスト用HighlighterとGUI補助。Markdownには依存しない |
+| `norito-iced-ext` | 文字ごとにサイズと行高を持てる編集部品とGUI補助。Icedの公開APIだけで実装し、Markdownには依存しない |
 | `norito-editor-widget` | 単一の編集バッファ、入力・自動補完・書式・表の操作、Modelとの同期 |
 | `norito-render` | Mermaid・数式のSVG生成。GUIに依存しない |
 | `norito-desktop` | 起動・DI（`services`）・非同期実行（`host`）・画面・テーマ |
 
 添付のデザイン資料から色を採用し、`apps/desktop/src/theme.rs` にOKLCHトークンを定義しています。資料内のスクリプトは実行せず、Webサイト固有の表示規則はエディタの機能要件として扱っていません。補助文字は読みやすさのため明度を調整しています。
 
-Icedへの変更は [vendor/README.md](vendor/README.md) に記録しています。文字ごとのサイズ指定、実際の行高に基づくキャレット・選択描画、小さいメニュートリガーと独立したドロップダウン幅を追加しています。
+Iced本体にはパッチを当てていません。文字ごとのサイズ指定、実際の行高に基づくキャレット・選択描画、本文内のIME変換表示は `norito-iced-ext` の `rich_editor` が cosmic-text を直接使って実装しています。入力処理は Iced 0.14 の TextEditor を基にしています（ライセンスは [LICENSE-ICED](crates/norito-iced-ext/LICENSE-ICED)）。Icedを更新するときは `cargo test -p norito-iced-ext` のピクセル回帰テストで、文字が描画範囲の外へ漏れないことを確認します。
 
 ## 現在の制約
 
