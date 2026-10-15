@@ -18,6 +18,13 @@ fn shortcut(key: &KeyPress) -> Option<EditorEvent> {
     {
         return Some(EditorEvent::ContextMenu);
     }
+    if key.key == Key::Named(Named::Tab) && !m.command() && !m.alt() {
+        return Some(EditorEvent::Format(if m.shift() {
+            Formatting::Outdent
+        } else {
+            Formatting::Indent
+        }));
+    }
     if !m.command() || m.alt() {
         return None;
     }

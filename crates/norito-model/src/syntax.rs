@@ -34,12 +34,14 @@ pub fn quote_prefix(line: &str) -> usize {
     at
 }
 
-/// Length of a list marker and the marker that continues the list on the next line.
+/// Length of a list marker, with its indentation, and the marker that
+/// continues the list on the next line at the same depth.
 pub fn list_prefix(line: &str) -> Option<(usize, String)> {
     let end = line.find('\n').unwrap_or(line.len());
-    let line = &line[..end];
+    let indent = indentation(&line[..end]);
+    let (spaces, line) = line[..end].split_at(indent);
     if line.starts_with(['-', '*', '+']) && line.as_bytes().get(1) == Some(&b' ') {
-        return Some((2, line[..2].into()));
+        return Some((indent + 2, format!("{spaces}{}", &line[..2])));
     }
     let digits = line.bytes().take_while(u8::is_ascii_digit).count();
     if digits > 0
@@ -48,11 +50,22 @@ pub fn list_prefix(line: &str) -> Option<(usize, String)> {
     {
         let n: u64 = line[..digits].parse().ok()?;
         return Some((
-            digits + 2,
-            format!("{}{} ", n.saturating_add(1), &line[digits..digits + 1]),
+            indent + digits + 2,
+            format!(
+                "{spaces}{}{} ",
+                n.saturating_add(1),
+                &line[digits..digits + 1]
+            ),
         ));
     }
     None
+}
+
+/// Length of the leading spaces and tabs.
+pub fn indentation(line: &str) -> usize {
+    line.bytes()
+        .take_while(|b| matches!(b, b' ' | b'\t'))
+        .count()
 }
 
 /// Byte range of the source line containing `at`, without its newline.
@@ -71,6 +84,8 @@ mod tests {
         assert_eq!(list_prefix("- item"), Some((2, "- ".into())));
         assert_eq!(list_prefix("9) item"), Some((3, "10) ".into())));
         assert_eq!(list_prefix("-item"), None);
+        assert_eq!(list_prefix("  - item"), Some((4, "  - ".into())));
+        assert_eq!(list_prefix("   1. item"), Some((6, "   2. ".into())));
         assert_eq!(line_at("a\nbc\nd", 3), 2..4);
         assert!(is_mermaid("mermaid theme") && !is_mermaid("rust"));
     }
