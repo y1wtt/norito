@@ -9,7 +9,11 @@ fn marker(formatting: Formatting) -> Option<&'static str> {
         Formatting::Italic => Some("*"),
         Formatting::Code => Some("`"),
         Formatting::Strike => Some("~~"),
-        Formatting::Heading(_) | Formatting::Bullet | Formatting::Quote => None,
+        Formatting::Heading(_)
+        | Formatting::Bullet
+        | Formatting::Quote
+        | Formatting::Indent
+        | Formatting::Outdent => None,
     }
 }
 
@@ -41,6 +45,9 @@ impl MarkdownEditor {
                 .projection
                 .line_prefix(caret, &"#".repeat(level as usize)),
             (Formatting::Bullet, _) => self.projection.line_prefix(caret, "-"),
+            (Formatting::Indent | Formatting::Outdent, _) => self
+                .projection
+                .indent_list(self.source_selection(), formatting == Formatting::Outdent),
             (_, None) => self.projection.toggle_quote(self.source_selection()),
         }?;
         if source == self.projection.source {

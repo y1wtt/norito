@@ -31,6 +31,8 @@ pub struct TextStyle {
     pub small: bool,
     /// A task marker the widget draws as a checkbox: `Some(checked)`.
     pub task: Option<bool>,
+    /// A bullet the widget draws, by list nesting depth.
+    pub bullet: Option<u8>,
 }
 /// One displayed unit and the source bytes it stands for.
 #[derive(Debug, Clone)]

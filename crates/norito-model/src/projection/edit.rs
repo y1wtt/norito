@@ -131,7 +131,21 @@ impl Projection {
     /// Split the line at `display`. Inline constructs are closed before the
     /// break and reopened after it; quotes and lists continue when asked.
     fn break_line(&self, display: usize, newline: &str, continue_block: bool) -> (String, usize) {
-        let anchor = self.source_position(display);
+        let mut anchor = self.source_position(display);
+        let start = self.source[..anchor].rfind('\n').map_or(0, |at| at + 1);
+        let line = self.source[start..].split('\n').next().unwrap_or("");
+        let in_code = self
+            .cells
+            .iter()
+            .any(|c| c.source.start <= anchor && c.source.end >= anchor && c.style.block_code);
+        if !in_code && continue_block {
+            // A break before a visible list marker splits after it, not through it.
+            let marker = match quote_prefix(line) {
+                0 => list_prefix(line).map_or(0, |(len, _)| len),
+                len => len,
+            };
+            anchor = anchor.max(start + marker);
+        }
         let mut hidden = vec![false; self.source.len()];
         let mut before = BTreeMap::<usize, String>::new();
         let mut after = BTreeMap::<usize, String>::new();
@@ -170,12 +184,6 @@ impl Projection {
                 hidden[w.inner.end..w.outer.end].fill(true);
             }
         }
-        let start = self.source[..anchor].rfind('\n').map_or(0, |at| at + 1);
-        let line = self.source[start..].split('\n').next().unwrap_or("");
-        let in_code = self
-            .cells
-            .iter()
-            .any(|c| c.source.start <= anchor && c.source.end >= anchor && c.style.block_code);
         let mut insertion = newline.to_owned();
         if !in_code && continue_block {
             let quote_len = quote_prefix(line);
@@ -185,6 +193,13 @@ impl Projection {
                 list_prefix(line)
             };
             if let Some((len, next)) = continuation {
+                if line[len..].trim().is_empty()
+                    && quote_len == 0
+                    && let Some((source, caret)) = self.indent_list(anchor..anchor, true)
+                {
+                    // An empty nested item moves up a level instead.
+                    return (source, caret.end);
+                }
                 if line[len..].trim().is_empty() {
                     // An empty item ends the block. Keep an actual paragraph
                     // boundary; otherwise later typing is a lazy continuation.
@@ -269,6 +284,43 @@ mod tests {
         assert_eq!(source, "- item\n\n");
     }
     #[test]
+    fn nested_items_continue_and_empty_ones_move_up() {
+        let p = Projection::new("- a\n  - b");
+        let (source, _) = p.replace(p.text.len()..p.text.len(), "\n");
+        assert_eq!(source, "- a\n  - b\n  - ");
+        let p = Projection::new(&source);
+        let (source, caret) = p.replace(p.text.len()..p.text.len(), "\n");
+        assert_eq!((source.as_str(), caret), ("- a\n  - b\n- ", 12));
+        let p = Projection::new("1. a\n   1. b");
+        let (source, _) = p.replace(p.text.len()..p.text.len(), "\n");
+        assert_eq!(source, "1. a\n   1. b\n   2. ");
+    }
+    #[test]
+    fn break_at_line_start_keeps_one_marker() {
+        let p = Projection::new("```\n- code\n```");
+        assert_eq!(p.replace(0..0, "\n").0, "```\n\n- code\n```");
+        for (source, line) in [
+            ("- テキスト", 0),
+            ("- a\n- テキスト", 4),
+            ("- a\n  - テキスト", 4),
+        ] {
+            let p = Projection::new(source);
+            let marker = crate::syntax::list_prefix(&source[line..]).unwrap();
+            for at in [line, line + marker.0] {
+                let display = p.display_position(at);
+                let (actual, caret) = p.replace(display..display, "\n");
+                let expected = format!(
+                    "{}{}\n{}テキスト",
+                    &source[..line],
+                    &marker.1[..marker.0],
+                    &marker.1[..marker.0]
+                );
+                assert_eq!(actual, expected, "{source:?} at {at}");
+                assert_eq!(&actual[caret..], "テキスト");
+            }
+        }
+    }
+    #[test]
     fn inline_breaks_preserve_delimiters_and_cursor() {
         for (source, at, expected) in [
             ("**bold**", 4, "**bold**\n"),
@@ -291,7 +343,7 @@ mod tests {
             let (typed, _) = p.replace(at..at, "あ");
             assert!(
                 Projection::new(&typed).text.contains("\nあ")
-                    || Projection::new(&typed).text.contains("\n• あ"),
+                    || Projection::new(&typed).text.contains("\n\u{2003} あ"),
                 "{typed}"
             );
         }
