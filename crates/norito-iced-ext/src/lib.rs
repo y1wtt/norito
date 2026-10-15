@@ -2,6 +2,7 @@
 //! Built on Iced's public API only.
 pub mod editor_decorations;
 pub mod events;
+pub mod fonts;
 mod ink;
 pub mod inline_editor;
 pub mod rich_editor;
