@@ -1,11 +1,13 @@
 //! Typography: per-line highlight spans for the displayed text, cached by input.
 use crate::{MarkdownEditor, Media, Mode, tables::ROW_HEIGHT};
 use iced::{Color, Font, Theme, font};
-use norito_iced_ext::styled_text::{Format, Span, Styles};
+use norito_iced_ext::{
+    fonts,
+    styled_text::{Format, Span, Styles},
+};
 use norito_model::{projection::TextStyle, structure::Extent, text::line_index};
 use std::sync::Arc;
 
-pub(crate) const FONT: &str = "Yu Gothic UI";
 const BODY: f32 = 15.0;
 const BODY_LINE: f32 = 27.0;
 const CODE: f32 = 14.0;
@@ -52,9 +54,8 @@ fn text_size(style: TextStyle) -> f32 {
 }
 fn heading_font() -> Font {
     Font {
-        family: font::Family::Name(FONT),
         weight: font::Weight::Semibold,
-        ..Font::DEFAULT
+        ..fonts::TEXT
     }
 }
 /// An empty span that only sets the height of its line.
@@ -128,7 +129,7 @@ impl MarkdownEditor {
             family: if style.code {
                 font::Family::Monospace
             } else {
-                font::Family::Name(FONT)
+                fonts::TEXT.family
             },
             weight: if style.bold || style.heading > 0 {
                 font::Weight::Semibold

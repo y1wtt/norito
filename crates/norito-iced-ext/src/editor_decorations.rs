@@ -1,5 +1,5 @@
 //! Viewport-aligned decorations for a continuous editor. No Markdown knowledge.
-use crate::{ink, rich_editor::Content};
+use crate::{fonts, ink, rich_editor::Content};
 use iced::advanced::graphics::text::cosmic_text::Buffer;
 use iced::advanced::{
     Clipboard, Layout, Renderer as _, Shell, Widget,
@@ -8,7 +8,7 @@ use iced::advanced::{
     svg::{self, Renderer as _},
     widget::{Operation, Tree, tree},
 };
-use iced::{Color, Element, Event, Font, Length, Point, Rectangle, Renderer, Size, Theme};
+use iced::{Color, Element, Event, Length, Point, Rectangle, Renderer, Size, Theme};
 use std::{
     cell::RefCell,
     collections::HashMap,
@@ -43,9 +43,14 @@ impl Painter {
             return label.clone();
         }
         let label = self.previous.remove(&key).unwrap_or_else(|| {
-            let font = Font::with_name("Yu Gothic UI");
             let line_height = if width.is_some() { 1.5 } else { 1.4 };
-            Arc::new(ink::label(content, font, size, size * line_height, width))
+            Arc::new(ink::label(
+                content,
+                fonts::TEXT,
+                size,
+                size * line_height,
+                width,
+            ))
         });
         self.current.insert(key, label.clone());
         label

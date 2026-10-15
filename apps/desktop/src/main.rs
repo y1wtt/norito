@@ -27,11 +27,12 @@ mod tests;
 pub(crate) use app::{App, EditAction, Message};
 
 fn main() -> iced::Result {
+    norito_iced_ext::fonts::follow_fontconfig();
     iced::application(App::boot, App::update, App::view)
         .title(App::title)
         .theme(|app: &App| theme::theme(app.light))
         .subscription(App::subscription)
-        .default_font(iced::Font::with_name("Yu Gothic UI"))
+        .default_font(norito_iced_ext::fonts::TEXT)
         .window(iced::window::Settings {
             decorations: !cfg!(target_os = "windows"),
             min_size: Some(iced::Size::new(760.0, 520.0)),

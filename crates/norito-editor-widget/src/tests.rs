@@ -1,7 +1,7 @@
 //! Editing behaviour through the public widget API, as the desktop app drives it.
 use super::*;
 use iced::{
-    Font, Theme,
+    Theme,
     advanced::text::editor::{Cursor, Position},
 };
 
@@ -201,7 +201,7 @@ fn empty_heading_composition_matches_committed_layout_at_every_level() {
         let mut editor = Editor::with_text(&widget.projection.text);
         editor.update(
             iced::Size::new(720.0, 500.0),
-            Font::with_name("Yu Gothic UI"),
+            norito_iced_ext::fonts::TEXT,
             15.0.into(),
             LineHeight::Relative(1.8),
             Wrapping::WordOrGlyph,
