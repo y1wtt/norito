@@ -6,3 +6,4 @@ license.workspace = true
 
 [dependencies]
 pulldown-cmark = "=0.12.2"
+html5ever = "=0.38.0"

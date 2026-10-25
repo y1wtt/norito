@@ -6,9 +6,11 @@
 //! - `projection`: source <-> editable display text, and edits expressed on it.
 //! - `compose`: Markdown writers for generated blocks.
 //! - `text`: encoding-level helpers with no Markdown knowledge.
+pub mod clipboard;
 pub mod compose;
 mod document;
 mod history;
+pub mod html_import;
 pub mod projection;
 pub mod structure;
 pub mod syntax;

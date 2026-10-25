@@ -25,6 +25,13 @@ impl MarkdownEditor {
     pub fn selected_text(&self) -> String {
         self.content.text()[self.selection()].to_owned()
     }
+    pub fn selected_markdown(&self) -> String {
+        if self.mode == Mode::Source {
+            self.selected_text()
+        } else {
+            self.projection.copy_markdown(self.selection())
+        }
+    }
     pub fn set_mode(&mut self, mode: Mode) {
         if self.mode == mode {
             return;
@@ -91,7 +98,11 @@ impl MarkdownEditor {
         if !edit {
             if self.mode == Mode::Rich && !matches!(operation, text_editor::Action::Scroll { .. }) {
                 let source = self.source_selection();
-                self.activate(source);
+                // Selection is over rendered components. Revealing delimiters here
+                // changes its extent and leaves orphan markup when cutting.
+                if source.is_empty() {
+                    self.activate(source);
+                }
             }
             return None;
         }

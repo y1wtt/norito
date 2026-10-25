@@ -8,7 +8,7 @@ use iced::advanced::{
     svg::{self, Renderer as _},
     widget::{Operation, Tree, tree},
 };
-use iced::{Color, Element, Event, Length, Point, Rectangle, Renderer, Size, Theme};
+use iced::{Color, Element, Event, Font, Length, Point, Rectangle, Renderer, Size, Theme};
 use std::{
     cell::RefCell,
     collections::HashMap,
@@ -23,7 +23,53 @@ static TICK: LazyLock<svg::Handle> = LazyLock::new(|| {
     )
 });
 
-type LabelKey = (String, u32, Option<u32>);
+type LabelKey = (String, Font, u32, Option<u32>);
+
+#[test]
+fn table_label_cache_includes_font_and_reuses_unchanged_runs() {
+    let mut painter = Painter {
+        previous: HashMap::new(),
+        current: HashMap::new(),
+    };
+    let normal = fonts::TEXT;
+    let bold = Font {
+        weight: iced::font::Weight::Bold,
+        ..normal
+    };
+    let italic = Font {
+        style: iced::font::Style::Oblique,
+        ..normal
+    };
+    let first = painter.styled_label("日本語 abc", normal, 14.0, None);
+    let heavy = painter.styled_label("日本語 abc", bold, 14.0, None);
+    let slanted = painter.styled_label("日本語 abc", italic, 14.0, None);
+    assert!(!Arc::ptr_eq(&first, &heavy));
+    assert!(!Arc::ptr_eq(&first, &slanted));
+    assert!(Arc::ptr_eq(
+        &heavy,
+        &painter.styled_label("日本語 abc", bold, 14.0, None)
+    ));
+    let mut next = Painter {
+        previous: painter.current,
+        current: HashMap::new(),
+    };
+    assert!(Arc::ptr_eq(
+        &slanted,
+        &next.styled_label("日本語 abc", italic, 14.0, None)
+    ));
+    assert!(ink::width(&heavy) > 0.0);
+}
+
+/// A styled run supplied by the editor, independent of its document syntax.
+#[derive(Debug, Clone, PartialEq)]
+pub struct InlineRun {
+    pub text: String,
+    pub font: Font,
+    pub small: bool,
+    pub strike: bool,
+    pub highlight: bool,
+    pub link: bool,
+}
 
 /// Labels shaped for the last frame. Renderers reference them weakly until
 /// the frame is presented.
@@ -38,19 +84,27 @@ struct Painter {
 }
 impl Painter {
     fn label(&mut self, content: &str, size: f32, width: Option<f32>) -> Arc<Buffer> {
-        let key = (content.to_owned(), size.to_bits(), width.map(f32::to_bits));
+        self.styled_label(content, fonts::TEXT, size, width)
+    }
+    fn styled_label(
+        &mut self,
+        content: &str,
+        font: Font,
+        size: f32,
+        width: Option<f32>,
+    ) -> Arc<Buffer> {
+        let key = (
+            content.to_owned(),
+            font,
+            size.to_bits(),
+            width.map(f32::to_bits),
+        );
         if let Some(label) = self.current.get(&key) {
             return label.clone();
         }
         let label = self.previous.remove(&key).unwrap_or_else(|| {
             let line_height = if width.is_some() { 1.5 } else { 1.4 };
-            Arc::new(ink::label(
-                content,
-                fonts::TEXT,
-                size,
-                size * line_height,
-                width,
-            ))
+            Arc::new(ink::label(content, font, size, size * line_height, width))
         });
         self.current.insert(key, label.clone());
         label
@@ -89,13 +143,15 @@ pub enum Decoration<Message> {
     },
     Table {
         line: usize,
-        cells: Vec<Vec<String>>,
+        cells: Vec<Vec<Vec<InlineRun>>>,
         alignment: Vec<u8>,
         on_cell: Vec<Vec<Message>>,
     },
     Image {
         line: usize,
+        range: Option<std::ops::Range<usize>>,
         handle: Option<image::Handle>,
+        svg: Option<svg::Handle>,
         on_press: Message,
     },
     Strike {
@@ -110,6 +166,10 @@ pub enum Decoration<Message> {
     },
     Separator {
         line: usize,
+    },
+    Bullet {
+        line: usize,
+        range: std::ops::Range<usize>,
     },
     Rule {
         line: usize,
@@ -135,6 +195,7 @@ impl<M> Decoration<M> {
             | Self::Image { line, .. }
             | Self::Strike { line, .. }
             | Self::Checkbox { line, .. }
+            | Self::Bullet { line, .. }
             | Self::Separator { line }
             | Self::InlineDiagram { line, .. } => *line,
         }
@@ -172,7 +233,13 @@ impl<Message: Clone> Decorated<'_, Message> {
         layout: Layout<'_>,
     ) -> Option<Rectangle> {
         if let Decoration::InlineDiagram { line, range, .. }
-        | Decoration::Checkbox { line, range, .. } = decoration
+        | Decoration::Checkbox { line, range, .. }
+        | Decoration::Image {
+            line,
+            range: Some(range),
+            ..
+        }
+        | Decoration::Bullet { line, range } = decoration
         {
             self.content
                 .span_bounds(*line, range.clone())
@@ -404,7 +471,11 @@ impl<Message: Clone> Widget<Message, Theme, Renderer> for Decorated<'_, Message>
                         }
                     }
                     Decoration::Checkbox { checked, .. } => {
-                        let side = (bounds.width * 0.87).round();
+                        let side = bounds
+                            .width
+                            .min(bounds.height * 0.56)
+                            .clamp(10.0, 18.0)
+                            .round();
                         let square = Rectangle {
                             x: (bounds.center_x() - side / 2.0).round(),
                             y: (bounds.center_y() - side / 2.0).round(),
@@ -436,6 +507,25 @@ impl<Message: Clone> Widget<Message, Theme, Renderer> for Decorated<'_, Message>
                             );
                         }
                     }
+                    Decoration::Bullet { .. } => {
+                        let side = (bounds.height * 0.16).clamp(3.0, 6.0);
+                        renderer.fill_quad(
+                            renderer::Quad {
+                                bounds: Rectangle {
+                                    x: bounds.center_x() - side / 2.0,
+                                    y: bounds.center_y() - side / 2.0,
+                                    width: side,
+                                    height: side,
+                                },
+                                border: iced::Border {
+                                    radius: (side / 2.0).into(),
+                                    ..Default::default()
+                                },
+                                ..Default::default()
+                            },
+                            theme.palette().text,
+                        );
+                    }
                     Decoration::Table {
                         cells, alignment, ..
                     } => {
@@ -466,20 +556,72 @@ impl<Message: Clone> Widget<Message, Theme, Renderer> for Decorated<'_, Message>
                                     },
                                 );
                                 let inner = cell.shrink(7.0);
-                                let label = painter.label(value, 14.0, None);
-                                let width = ink::width(&label);
-                                let x = match alignment.get(c) {
+                                let labels: Vec<_> = value
+                                    .iter()
+                                    .map(|run| {
+                                        painter.styled_label(
+                                            &run.text,
+                                            run.font,
+                                            if run.small { 12.0 } else { 14.0 },
+                                            None,
+                                        )
+                                    })
+                                    .collect();
+                                let width: f32 = labels.iter().map(|label| ink::width(label)).sum();
+                                let mut x = match alignment.get(c) {
                                     Some(1) => inner.center_x() - width / 2.0,
                                     Some(2) => inner.x + inner.width - width,
                                     _ => inner.x,
                                 };
                                 if let Some(cell_clip) = cell.intersection(&clip) {
-                                    ink::fill(
-                                        renderer,
-                                        [(&label, Point::new(x, inner.y))],
-                                        theme.palette().text,
-                                        cell_clip,
-                                    );
+                                    for (run, label) in value.iter().zip(&labels) {
+                                        let run_width = ink::width(label);
+                                        if run.highlight
+                                            && let Some(bounds) = (Rectangle {
+                                                x,
+                                                y: inner.y,
+                                                width: run_width,
+                                                height: 20.0,
+                                            })
+                                            .intersection(&cell_clip)
+                                        {
+                                            renderer.fill_quad(
+                                                renderer::Quad {
+                                                    bounds,
+                                                    ..Default::default()
+                                                },
+                                                Color::from_rgba(0.8, 0.6, 0.15, 0.35),
+                                            );
+                                        }
+                                        ink::fill(
+                                            renderer,
+                                            [(label, Point::new(x, inner.y))],
+                                            if run.link {
+                                                theme.palette().primary
+                                            } else {
+                                                theme.palette().text
+                                            },
+                                            cell_clip,
+                                        );
+                                        if run.strike
+                                            && let Some(bounds) = (Rectangle {
+                                                x,
+                                                y: inner.y + 10.0,
+                                                width: run_width,
+                                                height: 1.0,
+                                            })
+                                            .intersection(&cell_clip)
+                                        {
+                                            renderer.fill_quad(
+                                                renderer::Quad {
+                                                    bounds,
+                                                    ..Default::default()
+                                                },
+                                                theme.palette().text,
+                                            );
+                                        }
+                                        x += run_width;
+                                    }
                                 }
                             }
                         }
@@ -499,6 +641,25 @@ impl<Message: Clone> Widget<Message, Theme, Renderer> for Decorated<'_, Message>
                         renderer.draw_image(
                             image::Image::new(handle.clone()),
                             Rectangle::new(bounds.position(), size),
+                            clip,
+                        );
+                    }
+                    Decoration::Image {
+                        svg: Some(handle), ..
+                    } => {
+                        let native = renderer.measure_svg(handle);
+                        let scale = (bounds.width / native.width as f32)
+                            .min(bounds.height / native.height as f32)
+                            .min(1.0);
+                        renderer.draw_svg(
+                            svg::Svg::new(handle.clone()),
+                            Rectangle::new(
+                                bounds.position(),
+                                Size::new(
+                                    native.width as f32 * scale,
+                                    native.height as f32 * scale,
+                                ),
+                            ),
                             clip,
                         );
                     }

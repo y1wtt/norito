@@ -39,6 +39,9 @@ pub use tables::TableAction;
 
 #[derive(Debug, Clone)]
 pub enum EditorEvent {
+    Copy,
+    Cut,
+    Paste,
     Action(text_editor::Action),
     Format(Formatting),
     Undo,
@@ -76,6 +79,7 @@ pub enum Formatting {
 pub struct Media {
     pub diagrams: HashMap<Diagram, Result<Rendered, String>>,
     pub images: HashMap<String, Result<image::Handle, String>>,
+    pub svg_images: HashMap<String, svg::Handle>,
 }
 /// A rendered diagram. Formulas also carry their extent, so text can make room for them.
 #[derive(Debug, Clone)]

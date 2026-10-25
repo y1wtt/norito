@@ -49,16 +49,28 @@ impl App {
     }
     /// Load every image the saved document links to that is not loaded yet.
     pub(super) fn load_images(&mut self) -> Task<Message> {
-        let Some(file) = self.vm.session.handle() else {
-            return Task::none();
-        };
+        let file = self.vm.session.handle();
         let epoch = self.vm.session.epoch;
         let mut tasks = vec![];
-        for link in self.features.structure.links.iter().filter(|l| l.image) {
+        for link in self
+            .features
+            .structure
+            .links
+            .clone()
+            .into_iter()
+            .filter(|l| l.image)
+        {
             let images = &mut self.features.media.images;
             if images.contains_key(&link.destination) {
                 continue;
             }
+            if let Some(result) = crate::clipboard::embedded_image(&link.destination) {
+                self.loaded(link.destination.clone(), result, epoch);
+                continue;
+            }
+            let Some(file) = file else {
+                continue;
+            };
             let destination = link.destination.clone();
             images.insert(destination.clone(), Err("読み込み中…".into()));
             let resources = self.services.resources.clone();
@@ -72,6 +84,16 @@ impl App {
     }
     pub(super) fn loaded(&mut self, url: String, result: Result<Vec<u8>>, epoch: u64) {
         if epoch == self.vm.session.epoch {
+            if let Ok(bytes) = &result
+                && crate::clipboard::is_svg(bytes)
+            {
+                self.features
+                    .media
+                    .svg_images
+                    .insert(url.clone(), widget::svg::Handle::from_memory(bytes.clone()));
+                self.features.media.images.insert(url, Err(String::new()));
+                return;
+            }
             self.features.media.images.insert(
                 url,
                 result

@@ -7,6 +7,9 @@ impl Projection {
     /// Replace the displayed `display` range by `inserted`. Returns the new
     /// source and the caret position in it.
     pub fn replace(&self, display: Range<usize>, inserted: &str) -> (String, usize) {
+        if !display.is_empty() && display.start == 0 && display.end == self.text.len() {
+            return (inserted.into(), inserted.len());
+        }
         let source_range = self.source_range(display.clone());
         if !inserted.contains('\n')
             && self
@@ -21,9 +24,6 @@ impl Projection {
         }
         if inserted.contains('\n') {
             return self.replace_lines(display, inserted);
-        }
-        if !display.is_empty() && display.start == 0 && display.end == self.text.len() {
-            return (inserted.into(), inserted.len());
         }
         let selected: Vec<_> = self
             .cells

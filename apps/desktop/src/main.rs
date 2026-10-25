@@ -6,6 +6,7 @@
 //! - `view` + `theme` + `icons`: drawing.
 mod app;
 mod cli;
+mod clipboard;
 mod drops;
 mod edit;
 mod features;

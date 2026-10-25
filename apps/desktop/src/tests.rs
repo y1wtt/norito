@@ -5,6 +5,10 @@ use norito_editor_widget::{EditorEvent, Mode};
 use norito_platform::*;
 use norito_viewmodel::{Action, Command};
 use std::sync::Arc;
+include!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../tests/fixtures/components.rs"
+));
 
 #[test]
 fn drop_result_survives_typing_and_waits_for_ime() {
@@ -304,6 +308,13 @@ fn context_cut_paste_and_undo_use_document_history() {
     let _ = app.update(Message::Context(true));
     assert_eq!(app.editor.selected_text(), "日本語");
     let _ = app.update(Message::EditMenu(super::EditAction::Cut));
+    #[cfg(target_os = "windows")]
+    let _ = app.update(Message::ClipboardWritten(
+        Ok(()),
+        Some(app.editor.source_selection()),
+        app.vm.session.epoch,
+        app.vm.session.document.revision,
+    ));
     assert_eq!(app.vm.session.document.source, "");
     let _ = app.update(Message::Command(Command::Undo));
     assert_eq!(app.vm.session.document.source, "日本語");
@@ -316,6 +327,68 @@ fn context_cut_paste_and_undo_use_document_history() {
     assert_eq!(app.vm.session.document.source, "置換");
     let _ = app.update(Message::Paste(Some("遅延した結果".into()), epoch, revision));
     assert_eq!(app.vm.session.document.source, "置換");
+}
+
+#[test]
+fn pasted_markdown_collapses_into_components_and_undoes() {
+    for &(_, text) in COMPONENTS {
+        let (mut app, _) = App::boot();
+        let _ = app.update(Message::Paste(
+            Some(text.into()),
+            app.vm.session.epoch,
+            app.vm.session.document.revision,
+        ));
+        assert_eq!(app.vm.session.document.source, text);
+        assert_eq!(
+            app.editor.displayed(),
+            norito_model::projection::Projection::editable(text, None).text
+        );
+        let _ = app.update(Message::Command(Command::Undo));
+        assert_eq!(app.vm.session.document.source, "");
+        let _ = app.update(Message::Command(Command::Redo));
+        assert_eq!(app.vm.session.document.source, text);
+    }
+}
+
+#[test]
+fn delayed_clipboard_results_never_delete_or_replace_newer_input() {
+    for case in ["failure", "epoch", "revision", "selection", "ime"] {
+        let (mut app, _) = App::boot();
+        insert(&mut app, "**本文**");
+        let _ = app.update(Message::EditMenu(super::EditAction::SelectAll));
+        let selection = app.editor.source_selection();
+        let epoch = app.vm.session.epoch;
+        let revision = app.vm.session.document.revision;
+        match case {
+            "epoch" => app.vm.session.epoch += 1,
+            "revision" => {
+                insert(&mut app, "新しい本文");
+            }
+            "selection" => app.editor.jump(0),
+            "ime" => app.composing = true,
+            _ => {}
+        }
+        let before = app.vm.session.document.source.clone();
+        let result = if case == "failure" {
+            Err(PlatformError {
+                kind: ErrorKind::Io,
+                message: "clipboard busy".into(),
+            })
+        } else {
+            Ok(())
+        };
+        let _ = app.update(Message::ClipboardWritten(
+            result,
+            Some(selection),
+            epoch,
+            revision,
+        ));
+        assert_eq!(app.vm.session.document.source, before, "cut {case}");
+        if matches!(case, "epoch" | "revision" | "ime") {
+            let _ = app.update(Message::Paste(Some("遅延".into()), epoch, revision));
+            assert_eq!(app.vm.session.document.source, before, "paste {case}");
+        }
+    }
 }
 
 #[test]

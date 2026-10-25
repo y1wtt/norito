@@ -15,6 +15,7 @@ impl Projection {
         for (event, range) in Parser::new_ext(source, crate::syntax::options()).into_offset_iter() {
             marks.event(event, range);
         }
+        marks.escapes();
         // Optional inline extensions, outside parsed code. Preserve original
         // source ranges so revealing their delimiters uses the same edit path.
         for marker in ["==", "^", "~"] {
@@ -53,6 +54,23 @@ struct Marks<'a> {
 }
 
 impl<'a> Marks<'a> {
+    fn escapes(&mut self) {
+        let bytes = self.source.as_bytes();
+        let mut at = 0;
+        while at + 1 < bytes.len() {
+            if bytes[at] == b'\\'
+                && bytes[at + 1].is_ascii_punctuation()
+                && !self.styles[at].code
+                && !self.hidden[at]
+                && !self.math.iter().any(|range| range.contains(&at))
+            {
+                self.replace(at..at + 2, (bytes[at + 1] as char).to_string());
+                at += 2;
+            } else {
+                at += 1;
+            }
+        }
+    }
     fn new(source: &'a str, active: Option<usize>, interactive: bool, raw_view: bool) -> Self {
         Self {
             source,
@@ -143,6 +161,14 @@ impl<'a> Marks<'a> {
             Event::TaskListMarker(checked) => {
                 // A blank the widget draws a box over; fonts render ☐/☑ as emoji.
                 if self.interactive && !self.editing(&range) {
+                    if let Some(prefix) =
+                        self.prefixes.iter().find(|p| p.end == range.start).cloned()
+                        && self.source[prefix.clone()].starts_with(['-', '*', '+'])
+                    {
+                        self.replacements.remove(&prefix.start);
+                        self.hidden[prefix.clone()].fill(true);
+                        self.styles[prefix.start].bullet = false;
+                    }
                     self.styles[range.start].task = Some(checked);
                     self.replace(range, "\u{2003}");
                 }
@@ -189,7 +215,12 @@ impl<'a> Marks<'a> {
                 if let Some((len, _)) = list_prefix(raw) {
                     let prefix = range.start..range.start + len;
                     let label = if raw.starts_with(['-', '*', '+']) {
-                        "• ".into()
+                        if self.interactive {
+                            self.styles[range.start].bullet = true;
+                            "\u{2003}".into()
+                        } else {
+                            "• ".into()
+                        }
                     } else {
                         raw[..len].to_owned()
                     };
@@ -358,7 +389,18 @@ impl<'a> Marks<'a> {
                 let end = self.line_end(&range);
                 self.styles[range.start].table = table;
                 self.styles[range.start].image = !table;
-                self.replace(range.start..end, " ");
+                let line = crate::syntax::line_at(self.source, range.start);
+                let inline_image = !table
+                    && (!self.source[line.start..range.start].trim().is_empty()
+                        || !self.source[end..line.end.max(end)].trim().is_empty());
+                self.replace(
+                    range.start..end,
+                    if inline_image {
+                        "\u{2003}".repeat(16)
+                    } else {
+                        " ".into()
+                    },
+                );
             }
         }
     }
@@ -457,6 +499,25 @@ impl<'a> Marks<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn escaped_punctuation_renders_without_backslashes_and_copies_source() {
+        let source = r"\*literal\* &amp; &lt;";
+        let p = Projection::editable(source, None);
+        assert_eq!(p.text, "*literal* & <");
+        assert_eq!(p.copy_markdown(0..p.text.len()), source);
+        assert_eq!(Projection::new(r"`\*code\*`").text, r"\*code\*");
+        assert_eq!(Projection::raw(source).text, source);
+    }
+    #[test]
+    fn inline_images_reserve_width_without_hiding_neighboring_text() {
+        let source = "前 ![説明](a.png) 後";
+        let p = Projection::editable(source, None);
+        assert!(p.text.starts_with("前 ") && p.text.ends_with(" 後"));
+        let image = p.cells.iter().find(|c| c.style.image).unwrap();
+        assert_eq!(p.text[image.display.clone()].chars().count(), 16);
+        assert_eq!(p.copy_markdown(image.display.clone()), "![説明](a.png)");
+        assert_eq!(p.copy_markdown(0..p.text.len()), source);
+    }
     #[test]
     fn closing_fence_is_not_an_extra_code_row() {
         for source in [

@@ -33,6 +33,12 @@ pub enum Message {
     Context(bool),
     EditMenu(EditAction),
     Paste(Option<String>, u64, u64),
+    ClipboardWritten(
+        norito_platform::Result<()>,
+        Option<std::ops::Range<usize>>,
+        u64,
+        u64,
+    ),
     Composing(bool),
     Modifiers(Modifiers),
     Command(Command),
@@ -267,6 +273,9 @@ impl App {
             Message::DropAsset(result, placement) => self.drop_imported(result, placement),
             Message::EditMenu(action) => self.edit_menu(action),
             Message::Paste(text, epoch, revision) => self.paste(text, epoch, revision),
+            Message::ClipboardWritten(result, cut, epoch, revision) => {
+                self.clipboard_written(result, cut, epoch, revision)
+            }
             Message::Modifiers(modifiers) => {
                 self.modifiers = modifiers;
                 Task::none()
