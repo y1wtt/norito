@@ -14,6 +14,9 @@ use std::sync::Arc;
 impl App {
     pub(crate) fn editor_event(&mut self, event: EditorEvent) -> Task<Message> {
         match event {
+            EditorEvent::Copy => self.edit_menu(EditAction::Copy),
+            EditorEvent::Cut => self.edit_menu(EditAction::Cut),
+            EditorEvent::Paste => self.edit_menu(EditAction::Paste),
             EditorEvent::Format(format) => self.update(Message::Format(format)),
             EditorEvent::Undo => self.update(Message::Command(Command::Undo)),
             EditorEvent::Redo => self.update(Message::Command(Command::Redo)),
@@ -96,21 +99,66 @@ impl App {
         }
         let task = match action {
             EditAction::Copy | EditAction::Cut => {
-                let selected = self.editor.selected_text();
-                if selected.is_empty() {
-                    return Task::none();
+                #[cfg(target_os = "windows")]
+                {
+                    let markdown = self.editor.selected_markdown();
+                    if markdown.is_empty() {
+                        return Task::none();
+                    }
+                    let file = self.vm.session.handle();
+                    let resources = self.services.resources.clone();
+                    let epoch = self.vm.session.epoch;
+                    let clipboard = self.services.clipboard.clone();
+                    let revision = self.vm.session.document.revision;
+                    let cut =
+                        matches!(action, EditAction::Cut).then(|| self.editor.source_selection());
+                    return crate::services::blocking(
+                        move || {
+                            clipboard.write_fragment(&crate::clipboard::fragment(
+                                markdown,
+                                file,
+                                resources.as_ref(),
+                            ))
+                        },
+                        move |result| {
+                            Message::ClipboardWritten(result, cut.clone(), epoch, revision)
+                        },
+                    );
                 }
-                let copy = iced::clipboard::write(selected);
-                if matches!(action, EditAction::Cut) {
-                    Task::batch([copy, self.insert_text(String::new())])
-                } else {
-                    copy
+                #[cfg(not(target_os = "windows"))]
+                {
+                    let selected = self.editor.selected_text();
+                    if selected.is_empty() {
+                        return Task::none();
+                    }
+                    let copy = iced::clipboard::write(selected);
+                    if matches!(action, EditAction::Cut) {
+                        Task::batch([copy, self.insert_text(String::new())])
+                    } else {
+                        copy
+                    }
                 }
             }
             EditAction::Paste => {
                 let epoch = self.vm.session.epoch;
                 let revision = self.vm.session.document.revision;
-                iced::clipboard::read().map(move |text| Message::Paste(text, epoch, revision))
+                #[cfg(target_os = "windows")]
+                {
+                    let clipboard = self.services.clipboard.clone();
+                    crate::services::blocking(
+                        move || clipboard.read_fragment(),
+                        move |result| match result {
+                            Ok(text) => Message::Paste(text, epoch, revision),
+                            Err(error) => {
+                                Message::ClipboardWritten(Err(error), None, epoch, revision)
+                            }
+                        },
+                    )
+                }
+                #[cfg(not(target_os = "windows"))]
+                {
+                    iced::clipboard::read().map(move |text| Message::Paste(text, epoch, revision))
+                }
             }
             EditAction::SelectAll => self.editor_action(Action::SelectAll),
         };
@@ -135,7 +183,29 @@ impl App {
         }
     }
     fn insert_text(&mut self, text: String) -> Task<Message> {
-        self.editor_action(Action::Edit(Edit::Paste(Arc::new(text))))
+        let task = self.editor_action(Action::Edit(Edit::Paste(Arc::new(text))));
+        if self.mode == Mode::Rich {
+            self.editor.finish_editing();
+        }
+        task
+    }
+    pub(crate) fn clipboard_written(
+        &mut self,
+        result: norito_platform::Result<()>,
+        cut: Option<std::ops::Range<usize>>,
+        epoch: u64,
+        revision: u64,
+    ) -> Task<Message> {
+        if let Err(error) = result {
+            self.vm.status.fail(error.message);
+        } else if cut.is_some_and(|range| range == self.editor.source_selection())
+            && !self.composing
+            && epoch == self.vm.session.epoch
+            && revision == self.vm.session.document.revision
+        {
+            return self.insert_text(String::new());
+        }
+        Task::none()
     }
     pub(crate) fn format(&mut self, format: Formatting) -> Task<Message> {
         self.context = None;

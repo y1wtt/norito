@@ -6,6 +6,10 @@ license.workspace = true
 
 [dependencies]
 norito-platform.workspace = true
+norito-model.workspace = true
 blake3 = "1"
 tempfile = "3"
 rfd = "0.15"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+clipboard-win = "=5.4.1"

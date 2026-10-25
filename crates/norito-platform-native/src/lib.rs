@@ -4,6 +4,8 @@
 //! `files` (FileStore), `directories` (DirectoryStore), `dialogs` (FileDialog,
 //! ResourcePicker), `paths` (Paths), `resources` (DocumentResources) and
 //! `shell` (ExternalOpener).
+#[cfg(target_os = "windows")]
+pub mod clipboard;
 mod dialogs;
 mod directories;
 mod files;

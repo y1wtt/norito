@@ -3,6 +3,11 @@
 use crate::*;
 use std::path::PathBuf;
 
+pub trait ClipboardStore: Send + Sync {
+    fn write_fragment(&self, fragment: &ClipboardFragment) -> Result<()>;
+    fn read_fragment(&self) -> Result<Option<String>>;
+}
+
 pub trait FileStore: Send + Sync {
     fn read(&self, file: FileHandle) -> Result<ReadResult>;
     /// Replace the file only if it still matches `target.expected`.

@@ -14,6 +14,8 @@ pub struct Services {
     pub resources: Arc<dyn DocumentResources>,
     pub picker: Arc<dyn ResourcePicker>,
     pub opener: Arc<dyn ExternalOpener>,
+    #[cfg(target_os = "windows")]
+    pub clipboard: Arc<dyn ClipboardStore>,
 }
 
 impl Services {
@@ -27,6 +29,8 @@ impl Services {
             resources: native.clone(),
             picker: native.clone(),
             opener: native,
+            #[cfg(target_os = "windows")]
+            clipboard: Arc::new(norito_platform_native::clipboard::NativeClipboard),
         }
     }
 }

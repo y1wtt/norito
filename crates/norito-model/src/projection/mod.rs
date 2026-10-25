@@ -7,6 +7,7 @@
 //! - `blocks`: line-level commands (headings, lists, quotes, tasks).
 mod blocks;
 mod build;
+mod clipboard;
 mod edit;
 mod format;
 use std::ops::Range;
@@ -31,6 +32,7 @@ pub struct TextStyle {
     pub small: bool,
     /// A task marker the widget draws as a checkbox: `Some(checked)`.
     pub task: Option<bool>,
+    pub bullet: bool,
 }
 /// One displayed unit and the source bytes it stands for.
 #[derive(Debug, Clone)]
@@ -117,7 +119,18 @@ impl Projection {
         }
     }
     pub fn source_range(&self, display: Range<usize>) -> Range<usize> {
-        self.source_position(display.start)..self.source_position(display.end)
+        let mut range = self.source_position(display.start)..self.source_position(display.end);
+        if !display.is_empty() {
+            // A rendered component may occupy several display characters while
+            // mapping to one source range (for example an inline formula).
+            for cell in &self.cells {
+                if cell.display.start < display.end && display.start < cell.display.end {
+                    range.start = range.start.min(cell.source.start);
+                    range.end = range.end.max(cell.source.end);
+                }
+            }
+        }
+        range
     }
     pub fn display_position(&self, source: usize) -> usize {
         self.cells

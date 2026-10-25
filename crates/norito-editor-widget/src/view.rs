@@ -5,7 +5,7 @@ use crate::{
 };
 use iced::{Color, Element, Font, Length, Size, Theme, widget::text_editor::Style};
 use norito_iced_ext::{
-    editor_decorations::{Decoration, Figure, decorate},
+    editor_decorations::{Decoration, Figure, InlineRun, decorate},
     fonts,
     rich_editor::rich_editor,
 };
@@ -83,7 +83,7 @@ impl MarkdownEditor {
                     cells: table
                         .cells
                         .iter()
-                        .map(|r| r.iter().map(|c| Projection::new(c).text).collect())
+                        .map(|r| r.iter().map(|c| table_runs(c)).collect())
                         .collect(),
                     on_cell: focus_events(at, &table.cells),
                 });
@@ -96,6 +96,8 @@ impl MarkdownEditor {
             {
                 decorations.push(Decoration::Image {
                     line,
+                    range: (cell.display.len() > 1).then_some(range.clone()),
+                    svg: media.svg_images.get(&link.destination).cloned(),
                     handle: media
                         .images
                         .get(&link.destination)
@@ -149,7 +151,13 @@ impl MarkdownEditor {
                 });
             }
             if cell.style.strike && !cell.style.syntax {
-                decorations.push(Decoration::Strike { line, range });
+                decorations.push(Decoration::Strike {
+                    line,
+                    range: range.clone(),
+                });
+            }
+            if cell.style.bullet {
+                decorations.push(Decoration::Bullet { line, range });
             }
         }
         for (line, style) in self.projection.line_styles.iter().enumerate() {
@@ -177,6 +185,73 @@ impl MarkdownEditor {
         }
         decorations
     }
+}
+
+fn table_runs(source: &str) -> Vec<InlineRun> {
+    let projection = Projection::new(source);
+    let mut runs: Vec<InlineRun> = Vec::new();
+    for cell in &projection.cells {
+        let style = cell.style;
+        let font = Font {
+            family: if style.code {
+                iced::font::Family::Monospace
+            } else {
+                fonts::TEXT.family
+            },
+            weight: if style.bold {
+                iced::font::Weight::Bold
+            } else {
+                iced::font::Weight::Normal
+            },
+            style: if style.italic {
+                iced::font::Style::Oblique
+            } else {
+                iced::font::Style::Normal
+            },
+            ..Font::DEFAULT
+        };
+        let text = &projection.text[cell.display.clone()];
+        if let Some(last) = runs.last_mut()
+            && last.font == font
+            && last.small == style.small
+            && last.strike == style.strike
+            && last.highlight == style.highlight
+            && last.link == style.link
+        {
+            last.text.push_str(text);
+        } else {
+            runs.push(InlineRun {
+                text: text.into(),
+                font,
+                small: style.small,
+                strike: style.strike,
+                highlight: style.highlight,
+                link: style.link,
+            });
+        }
+    }
+    runs
+}
+
+#[test]
+fn table_cells_keep_inline_styles_and_nested_runs() {
+    let runs = table_runs("**太字 *斜体*** ~~削除~~ ==強調== `code` [link](page.md) H~2~O");
+    assert_eq!(
+        runs.iter().map(|r| r.text.as_str()).collect::<String>(),
+        "太字 斜体 削除 強調 code link H2O"
+    );
+    assert!(runs.iter().any(|r| r.text == "斜体"
+        && r.font.weight == iced::font::Weight::Bold
+        && r.font.style == iced::font::Style::Oblique));
+    assert!(runs.iter().any(|r| r.text == "削除" && r.strike));
+    assert!(runs.iter().any(|r| r.text == "強調" && r.highlight));
+    assert!(
+        runs.iter()
+            .any(|r| r.text == "code" && r.font.family == iced::font::Family::Monospace)
+    );
+    assert!(runs.iter().any(|r| r.text == "link" && r.link));
+    assert!(runs.iter().any(|r| r.text == "2" && r.small));
+    assert!(table_runs("").is_empty());
 }
 
 /// One focus event per table cell.

@@ -53,3 +53,9 @@ pub struct ResourceLink {
     pub label: String,
     pub destination: String,
 }
+#[derive(Debug, Clone)]
+pub struct ClipboardFragment {
+    pub text: String,
+    pub markdown: String,
+    pub html: String,
+}

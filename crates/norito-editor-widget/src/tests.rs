@@ -5,6 +5,66 @@ use iced::{
     advanced::text::editor::{Cursor, Position},
 };
 
+include!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../tests/fixtures/components.rs"
+));
+
+#[test]
+fn every_component_copy_cut_paste_and_history_in_both_modes() {
+    for &(name, source) in COMPONENTS {
+        for mode in [Mode::Rich, Mode::Source] {
+            let mut doc = Document::new(source.into());
+            let mut editor = MarkdownEditor::new(&doc);
+            editor.set_mode(mode);
+            editor.perform(text_editor::Action::SelectAll);
+            assert_eq!(editor.selected_markdown(), source, "copy {name} {mode:?}");
+            let removed = editor
+                .perform(text_editor::Action::Edit(text_editor::Edit::Paste(
+                    Arc::new(String::new()),
+                )))
+                .unwrap();
+            doc.edit(removed);
+            editor.synchronize(&doc, false);
+            assert_eq!(doc.source, "", "cut {name} {mode:?}");
+            doc.undo();
+            editor.synchronize(&doc, true);
+            assert_eq!(doc.source, source, "undo {name}");
+            doc.redo();
+            editor.synchronize(&doc, true);
+            let pasted = editor
+                .perform(text_editor::Action::Edit(text_editor::Edit::Paste(
+                    Arc::new(source.into()),
+                )))
+                .unwrap();
+            doc.edit(pasted);
+            editor.synchronize(&doc, false);
+            editor.finish_editing();
+            assert_eq!(doc.source, source, "paste {name} {mode:?}");
+            editor.perform(text_editor::Action::SelectAll);
+            assert_eq!(editor.selected_markdown(), source, "recopy {name} {mode:?}");
+        }
+    }
+}
+
+#[test]
+fn every_component_builds_styles_and_view_in_both_themes_and_modes() {
+    for &(name, source) in COMPONENTS {
+        for mode in [Mode::Rich, Mode::Source] {
+            for theme in [Theme::Light, Theme::Dark] {
+                let doc = Document::new(source.into());
+                let mut editor = MarkdownEditor::new(&doc);
+                editor.set_mode(mode);
+                let media = Media::default();
+                let styles = editor.styles(&theme, &media);
+                assert!(!styles.0.is_empty(), "{name} {mode:?}");
+                let _view = editor.view(&theme, true, &media);
+                assert_eq!(doc.source, source);
+            }
+        }
+    }
+}
+
 #[test]
 #[ignore = "manual continuous input timing"]
 fn measure_continuous_input() {

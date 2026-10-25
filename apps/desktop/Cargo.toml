@@ -16,6 +16,7 @@ norito-render.workspace = true
 tokio = { version = "1", features = ["rt"] }
 png = "0.18"
 regex = "=1.13.1"
+base64 = "=0.22.1"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 muda = "=0.19.3"
