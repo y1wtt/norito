@@ -108,6 +108,12 @@ pub enum Decoration<Message> {
         range: std::ops::Range<usize>,
         checked: bool,
     },
+    /// A list bullet over a blank placeholder: a disc, circle or square by depth.
+    Bullet {
+        line: usize,
+        range: std::ops::Range<usize>,
+        depth: u8,
+    },
     Separator {
         line: usize,
     },
@@ -135,6 +141,7 @@ impl<M> Decoration<M> {
             | Self::Image { line, .. }
             | Self::Strike { line, .. }
             | Self::Checkbox { line, .. }
+            | Self::Bullet { line, .. }
             | Self::Separator { line }
             | Self::InlineDiagram { line, .. } => *line,
         }
@@ -172,7 +179,8 @@ impl<Message: Clone> Decorated<'_, Message> {
         layout: Layout<'_>,
     ) -> Option<Rectangle> {
         if let Decoration::InlineDiagram { line, range, .. }
-        | Decoration::Checkbox { line, range, .. } = decoration
+        | Decoration::Checkbox { line, range, .. }
+        | Decoration::Bullet { line, range, .. } = decoration
         {
             self.content
                 .span_bounds(*line, range.clone())
@@ -435,6 +443,35 @@ impl<Message: Clone> Widget<Message, Theme, Renderer> for Decorated<'_, Message>
                                 clip,
                             );
                         }
+                    }
+                    Decoration::Bullet { depth, .. } => {
+                        let color = theme.palette().text;
+                        let side = (bounds.width * 0.36).round().max(4.0);
+                        let (side, fill, border) = match depth % 3 {
+                            0 => (side, color, iced::Border::default().rounded(side / 2.0)),
+                            1 => (
+                                side,
+                                Color::TRANSPARENT,
+                                iced::Border::default()
+                                    .rounded(side / 2.0)
+                                    .width(1.2)
+                                    .color(color),
+                            ),
+                            _ => ((side * 0.9).round(), color, iced::Border::default()),
+                        };
+                        renderer.fill_quad(
+                            renderer::Quad {
+                                bounds: Rectangle {
+                                    x: (bounds.center_x() - side / 2.0).round(),
+                                    y: (bounds.center_y() - side / 2.0).round(),
+                                    width: side,
+                                    height: side,
+                                },
+                                border,
+                                ..Default::default()
+                            },
+                            fill,
+                        );
                     }
                     Decoration::Table {
                         cells, alignment, ..

@@ -1,8 +1,12 @@
 //! Source -> display: which bytes are hidden, replaced or styled, then the cells.
 use super::{Cell, Projection, TextStyle, Wrapper};
-use crate::syntax::list_prefix;
-use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Parser, Tag};
-use std::{collections::BTreeMap, ops::Range};
+use crate::syntax::{indentation, list_prefix};
+use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Parser, Tag, TagEnd};
+use std::{borrow::Cow, collections::BTreeMap, ops::Range};
+
+/// Parsed after an empty list marker, so that Markdown reads the line as the
+/// item being typed rather than as paragraph text or a setext underline.
+const PLACEHOLDER: &str = "\u{200B}";
 
 impl Projection {
     pub(super) fn build(
@@ -12,7 +16,25 @@ impl Projection {
         raw_view: bool,
     ) -> Self {
         let mut marks = Marks::new(source, active, interactive, raw_view);
-        for (event, range) in Parser::new_ext(source, crate::syntax::options()).into_offset_iter() {
+        let (parsed, placeholders) = with_placeholders(source);
+        // Offsets in `parsed` back to `source`.
+        let original = |at: usize| {
+            let mut result = at;
+            for (i, &inserted) in placeholders.iter().enumerate() {
+                let start = inserted + i * PLACEHOLDER.len();
+                if at <= start {
+                    break;
+                }
+                result = at - i * PLACEHOLDER.len() - (at - start).min(PLACEHOLDER.len());
+            }
+            result
+        };
+        for (event, range) in Parser::new_ext(&parsed, crate::syntax::options()).into_offset_iter()
+        {
+            let range = original(range.start)..original(range.end);
+            if range.is_empty() && matches!(event, Event::Text(_)) {
+                continue;
+            }
             marks.event(event, range);
         }
         // Optional inline extensions, outside parsed code. Preserve original
@@ -30,6 +52,33 @@ impl Projection {
         marks.detach_closing_fences();
         marks.emit()
     }
+}
+
+/// `source` with a placeholder after every empty list marker, such as `  - `,
+/// and where they go.
+fn with_placeholders(source: &str) -> (Cow<'_, str>, Vec<usize>) {
+    let mut placeholders = vec![];
+    let mut at = 0;
+    for line in source.split_inclusive('\n') {
+        if let Some((len, _)) = list_prefix(line)
+            && line[len..].trim().is_empty()
+        {
+            placeholders.push(at + len);
+        }
+        at += line.len();
+    }
+    if placeholders.is_empty() {
+        return (Cow::Borrowed(source), placeholders);
+    }
+    let mut parsed = String::with_capacity(source.len() + placeholders.len() * PLACEHOLDER.len());
+    let mut from = 0;
+    for &at in &placeholders {
+        parsed.push_str(&source[from..at]);
+        parsed.push_str(PLACEHOLDER);
+        from = at;
+    }
+    parsed.push_str(&source[from..]);
+    (Cow::Owned(parsed), placeholders)
 }
 
 /// Per-byte decisions collected while scanning one source.
@@ -50,6 +99,8 @@ struct Marks<'a> {
     /// Tables (true) and images (false), collapsed to a single cell.
     blocks: Vec<(Range<usize>, bool)>,
     math: Vec<Range<usize>>,
+    /// Lists open at the current event.
+    lists: usize,
 }
 
 impl<'a> Marks<'a> {
@@ -69,6 +120,7 @@ impl<'a> Marks<'a> {
             code_blocks: vec![],
             blocks: vec![],
             math: vec![],
+            lists: 0,
         }
     }
     /// The caret is inside `range`, so it shows its source.
@@ -185,18 +237,9 @@ impl<'a> Marks<'a> {
                     self.style(range, |s| s.link = true);
                 }
             }
-            Event::Start(Tag::Item) => {
-                if let Some((len, _)) = list_prefix(raw) {
-                    let prefix = range.start..range.start + len;
-                    let label = if raw.starts_with(['-', '*', '+']) {
-                        "• ".into()
-                    } else {
-                        raw[..len].to_owned()
-                    };
-                    self.replace(prefix.clone(), label);
-                    self.prefixes.push(prefix);
-                }
-            }
+            Event::Start(Tag::List(_)) => self.lists += 1,
+            Event::End(TagEnd::List(_)) => self.lists = self.lists.saturating_sub(1),
+            Event::Start(Tag::Item) => self.item(range),
             Event::Start(Tag::BlockQuote(_)) => {
                 self.style(range.clone(), |s| s.quote = true);
                 let mut offset = range.start;
@@ -218,6 +261,33 @@ impl<'a> Marks<'a> {
             }),
             _ => {}
         }
+    }
+
+    /// Bullets become blanks the widget draws a shape over, varying with depth.
+    fn item(&mut self, range: Range<usize>) {
+        let source = self.source;
+        let raw = &source[range.clone()];
+        let Some((len, _)) = list_prefix(raw) else {
+            return;
+        };
+        let depth = self.lists.saturating_sub(1);
+        let marker = range.start + indentation(raw);
+        let mut prefix = marker..range.start + len;
+        // Nested items indent by one bullet and its space per level.
+        let line = source[..marker].rfind('\n').map_or(0, |at| at + 1);
+        if depth > 0 && line < marker && indentation(&source[line..marker]) == marker - line {
+            self.replace(line..marker, "\u{2003} ".repeat(depth));
+            prefix.start = line;
+        }
+        if source[marker..].starts_with(['-', '*', '+']) {
+            if !self.raw_view {
+                self.styles[marker].bullet = Some(depth.min(u8::MAX.into()) as u8);
+            }
+            self.replace(marker..marker + 1, "\u{2003}");
+        } else {
+            self.replace(marker..prefix.end, &source[marker..prefix.end]);
+        }
+        self.prefixes.push(prefix);
     }
 
     fn heading(&mut self, level: HeadingLevel, range: Range<usize>) {
@@ -522,6 +592,42 @@ mod tests {
         );
         assert!(Projection::editable(source, Some(3)).text.contains("[ ]"));
         assert!(Projection::new(source).text.contains("[x]"));
+    }
+    #[test]
+    fn bullets_vary_with_depth_and_nested_items_indent() {
+        let source = "- a\n  - b\n    * c\n1. d\n   - e";
+        let p = Projection::editable(source, None);
+        let bullets: Vec<_> = p
+            .cells
+            .iter()
+            .filter_map(|c| Some((&source[c.source.clone()], c.style.bullet?)))
+            .collect();
+        assert_eq!(bullets, [("-", 0), ("-", 1), ("*", 2), ("-", 1)]);
+        assert_eq!(
+            p.text,
+            "\u{2003} a\n\u{2003} \u{2003} b\n\u{2003} \u{2003} \u{2003} c\n1. d\n\u{2003} \u{2003} e"
+        );
+        assert!(
+            Projection::raw(source)
+                .cells
+                .iter()
+                .all(|c| c.style.bullet.is_none())
+        );
+    }
+    #[test]
+    fn empty_items_stay_items_where_markdown_reads_text() {
+        // An empty first sub-item would be a setext underline; after a
+        // paragraph, an empty item would be its text.
+        for (source, bullets) in [("- a\n  - ", 2), ("- a\n  - \n- b", 3), ("段落\n- ", 1)] {
+            let p = Projection::editable(source, None);
+            assert!(p.line_styles.iter().all(|s| s.heading == 0), "{source:?}");
+            let drawn = p.cells.iter().filter(|c| c.style.bullet.is_some()).count();
+            assert_eq!(drawn, bullets, "{source:?}");
+            assert!(!p.text.contains(['-', '\u{200B}']), "{source:?}");
+        }
+        let p = Projection::editable("- a\n  - ", None);
+        assert_eq!(p.text, "\u{2003} a\n\u{2003} \u{2003} ");
+        assert_eq!(p.replace(p.text.len()..p.text.len(), "b").0, "- a\n  - b");
     }
     #[test]
     fn metadata_and_reference_labels_remain_readable() {

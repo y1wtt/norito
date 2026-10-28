@@ -70,6 +70,9 @@ pub enum Formatting {
     Bullet,
     Quote,
     Strike,
+    /// Nest the list item under the previous one, or move it out (`Outdent`).
+    Indent,
+    Outdent,
 }
 /// Rendered media shown in place of collapsed blocks. Missing entries render as pending.
 #[derive(Default)]

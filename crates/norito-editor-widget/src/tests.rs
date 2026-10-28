@@ -375,6 +375,48 @@ fn leaving_quote_or_list_keeps_next_paragraph_outside() {
     }
 }
 #[test]
+fn tab_nests_list_items_that_keep_their_bullets() {
+    use text_editor::Edit::{Enter, Insert};
+    let mut doc = Document::new("- a".into());
+    let mut editor = MarkdownEditor::new(&doc);
+    editor.jump(doc.source.len());
+    let mut edit = |editor: &mut MarkdownEditor, source: Option<String>| {
+        doc.edit(source.unwrap());
+        editor.synchronize(&doc, false);
+        doc.source.clone()
+    };
+    let enter = |editor: &mut MarkdownEditor| editor.perform(text_editor::Action::Edit(Enter));
+    let typed =
+        |editor: &mut MarkdownEditor, c| editor.perform(text_editor::Action::Edit(Insert(c)));
+    let source = enter(&mut editor);
+    assert_eq!(edit(&mut editor, source), "- a\n- ");
+    let source = editor.format(Formatting::Indent);
+    assert_eq!(edit(&mut editor, source), "- a\n  - ");
+    let depths: Vec<_> = editor
+        .projection
+        .cells
+        .iter()
+        .filter_map(|c| c.style.bullet)
+        .collect();
+    assert_eq!(depths, [0, 1]);
+    let source = typed(&mut editor, 'b');
+    assert_eq!(edit(&mut editor, source), "- a\n  - b");
+    let source = enter(&mut editor);
+    assert_eq!(edit(&mut editor, source), "- a\n  - b\n  - ");
+    let source = editor.format(Formatting::Outdent);
+    assert_eq!(edit(&mut editor, source), "- a\n  - b\n- ");
+    let source = typed(&mut editor, 'c');
+    assert_eq!(edit(&mut editor, source), "- a\n  - b\n- c");
+    // Enter at the very start of an item adds an item above, with one marker each.
+    editor.content.move_to(Cursor {
+        position: Position { line: 2, column: 0 },
+        selection: None,
+    });
+    let source = enter(&mut editor);
+    assert_eq!(edit(&mut editor, source), "- a\n  - b\n- \n- c");
+    assert!(editor.format(Formatting::Indent).is_some());
+}
+#[test]
 fn repeated_character_insertion_uses_cursor_not_ambiguous_text_diff() {
     let mut doc = Document::new("**aa**aa".into());
     let mut editor = MarkdownEditor::new(&doc);
